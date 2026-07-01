@@ -32,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <div class="p-2.5 bg-blue-50 text-blue-600 rounded-xl"><i data-lucide="mail" class="w-5 h-5"></i></div>
                         <div>
                             <span class="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Email Address</span>
-                            <a href="mailto:support@eiiss.co.tz" class="text-xs font-bold text-slate-700 hover:text-blue-600 transition-colors">support@eiiss.co.tz</a>
+                            <a href="mailto:admin@eiiss.co.tz" class="text-xs font-bold text-slate-700 hover:text-blue-600 transition-colors">support@eiiss.co.tz</a>
                         </div>
                     </div>
 
@@ -57,10 +57,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-6 rounded-3xl shadow-md space-y-3">
                 <h3 class="font-heading font-extrabold text-base">Knowledge Base</h3>
                 <p class="text-xs text-blue-100/90 leading-relaxed font-medium">Looking for quick setup instructions, billing policies, or blockchain authentication tutorials? Browse our documentation.</p>
-                <a href="#" class="inline-flex items-center gap-1.5 text-xs font-bold text-white hover:underline pt-2">
+                <a href="wiki.php" class="inline-flex items-center gap-1.5 text-xs font-bold text-white hover:underline pt-2">
                     Open Wiki Portal <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
                 </a>
             </div>
+
         </div>
 
         <!-- Right: Interactive Support Form -->
