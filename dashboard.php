@@ -17,6 +17,8 @@ if ($role === 'admin') {
     exit;
 }
 
+$currentUser = dbGetUserByEmail($userEmail);
+
 require_once __DIR__ . '/includes/header.php';
 
 // Active Tab
@@ -59,29 +61,89 @@ $invested    = 0;
 $activeCount = 0;
 $watching    = 0;
 $avgROI      = 0;
+$myTransactions = [];
+$myUnlockedIdeas = [];
+$myWatchlistIdeas = [];
 
 if ($role === 'investor') {
     $allTx = getDB()->prepare("SELECT COALESCE(SUM(amount),0) as total FROM transactions WHERE investor_email = ?");
     $allTx->execute([$userEmail]);
     $invested = (float)$allTx->fetch()['total'];
 
-    $unlockStmt = getDB()->prepare("SELECT COUNT(DISTINCT idea_id) as cnt FROM unlocked_ideas WHERE investor_email = ?");
+    // Decrypted/Unlocked ideas count
+    $unlockStmt = getDB()->prepare("SELECT COUNT(DISTINCT idea_id) as cnt FROM unlocked_ideas WHERE investor_email = ? AND unlock_type IN ('access', 'attachments')");
     $unlockStmt->execute([$userEmail]);
     $activeCount = (int)$unlockStmt->fetch()['cnt'];
 
-    // Average ROI of ideas in user's portfolio
+    // Average ROI of decrypted ideas in user's portfolio (deduplicated)
     $roiStmt = getDB()->prepare("
-        SELECT AVG(i.expected_roi) as avg_roi
-        FROM unlocked_ideas u
-        JOIN ideas i ON u.idea_id = i.id
-        WHERE u.investor_email = ?
+        SELECT AVG(expected_roi) as avg_roi
+        FROM ideas
+        WHERE id IN (
+            SELECT DISTINCT idea_id 
+            FROM unlocked_ideas 
+            WHERE investor_email = ? AND unlock_type IN ('access', 'attachments')
+        )
     ");
     $roiStmt->execute([$userEmail]);
     $avgROI = round((float)($roiStmt->fetch()['avg_roi'] ?? 0));
+
+    // Watchlist count
+    $watchStmt = getDB()->prepare("SELECT COUNT(idea_id) as cnt FROM unlocked_ideas WHERE investor_email = ? AND unlock_type = 'watchlist'");
+    $watchStmt->execute([$userEmail]);
+    $watching = (int)$watchStmt->fetch()['cnt'];
+
+    // Fetch lists for interactive modals
+    $txListStmt = getDB()->prepare("SELECT * FROM transactions WHERE investor_email = ? ORDER BY created_at DESC");
+    $txListStmt->execute([$userEmail]);
+    $myTransactions = $txListStmt->fetchAll();
+
+    $unlockedListStmt = getDB()->prepare("
+        SELECT i.id, i.title, i.sector, i.expected_roi, i.stage, u.created_at as unlocked_at
+        FROM unlocked_ideas u
+        JOIN ideas i ON u.idea_id = i.id
+        WHERE u.investor_email = ? AND u.unlock_type IN ('access', 'attachments')
+        GROUP BY i.id
+        ORDER BY u.created_at DESC
+    ");
+    $unlockedListStmt->execute([$userEmail]);
+    $myUnlockedIdeas = $unlockedListStmt->fetchAll();
+
+    $watchlistListStmt = getDB()->prepare("
+        SELECT i.id, i.title, i.sector, i.expected_roi, i.stage, u.created_at as watched_at
+        FROM unlocked_ideas u
+        JOIN ideas i ON u.idea_id = i.id
+        WHERE u.investor_email = ? AND u.unlock_type = 'watchlist'
+        ORDER BY u.created_at DESC
+    ");
+    $watchlistListStmt->execute([$userEmail]);
+    $myWatchlistIdeas = $watchlistListStmt->fetchAll();
 }
 ?>
 
 <main class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full animate-fade-in">
+
+    <?php if ($role !== 'admin' && empty($currentUser['id_document'])): ?>
+        <div id="id-prompt-modal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-fade-in p-6 text-center">
+                <div class="w-16 h-16 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-100">
+                    <i data-lucide="shield-alert" class="w-8 h-8"></i>
+                </div>
+                <h3 class="font-heading font-extrabold text-xl text-slate-800">Scanned ID Required</h3>
+                <p class="text-sm text-slate-500 font-semibold mt-2.5 leading-relaxed">
+                    Your account has been approved by the administrator. To secure your profile and unlock complete platform services, please upload a scanned copy of your selected ID type.
+                </p>
+                <div class="mt-6 flex flex-col gap-2">
+                    <a href="settings.php?tab=1" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm shadow-md shadow-blue-500/15 flex items-center justify-center gap-2 transition-all">
+                        <i data-lucide="upload" class="w-4 h-4"></i> Go to Upload Section
+                    </a>
+                    <button onclick="document.getElementById('id-prompt-modal').classList.add('hidden')" class="w-full py-2.5 text-xs text-slate-400 hover:text-slate-600 font-bold transition-all">
+                        Maybe Later
+                    </button>
+                </div>
+            </div>
+        </div>
+    <?php endif; ?>
 
     <!-- ================= 1. ENTREPRENEUR WORKSPACE ================= -->
     <?php if ($role === 'entrepreneur'): ?>
@@ -351,22 +413,22 @@ if ($role === 'investor') {
 
         <!-- Portfolio Statistics Cards -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
-            <div class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md hover:border-green-200 transition-all cursor-pointer">
+            <div onclick="openInvestorStatsModal('invested')" class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md hover:border-green-200 transition-all cursor-pointer">
                 <div class="p-3 bg-green-50 text-green-600 rounded-xl w-fit mb-3"><i data-lucide="dollar-sign" class="w-6 h-6"></i></div>
                 <p class="text-2xl font-heading font-black text-slate-800">$<?= number_format($invested) ?></p>
                 <p class="text-xs font-semibold text-slate-400 mt-0.5">Total Invested Funds</p>
             </div>
-            <div class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md hover:border-blue-200 transition-all cursor-pointer">
+            <div onclick="openInvestorStatsModal('active')" class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md hover:border-blue-200 transition-all cursor-pointer">
                 <div class="p-3 bg-blue-50 text-blue-600 rounded-xl w-fit mb-3"><i data-lucide="trending-up" class="w-6 h-6"></i></div>
                 <p class="text-2xl font-heading font-black text-slate-800"><?= $activeCount ?></p>
                 <p class="text-xs font-semibold text-slate-400 mt-0.5">Active Vested Startups</p>
             </div>
-            <div class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md hover:border-purple-200 transition-all cursor-pointer">
+            <div onclick="openInvestorStatsModal('roi')" class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md hover:border-purple-200 transition-all cursor-pointer">
                 <div class="p-3 bg-purple-50 text-purple-600 rounded-xl w-fit mb-3"><i data-lucide="target" class="w-6 h-6"></i></div>
                 <p class="text-2xl font-heading font-black text-slate-800"><?= $avgROI ?>%</p>
                 <p class="text-xs font-semibold text-slate-400 mt-0.5">Average Projected ROI</p>
             </div>
-            <div class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md hover:border-yellow-200 transition-all cursor-pointer">
+            <div onclick="openInvestorStatsModal('watchlist')" class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md hover:border-yellow-200 transition-all cursor-pointer">
                 <div class="p-3 bg-yellow-50 text-yellow-600 rounded-xl w-fit mb-3"><i data-lucide="star" class="w-6 h-6"></i></div>
                 <p class="text-2xl font-heading font-black text-slate-800"><?= $watching ?></p>
                 <p class="text-xs font-semibold text-slate-400 mt-0.5">Ideas on Watchlist</p>
@@ -845,6 +907,123 @@ if ($role === 'investor') {
             'submitted_date' => $idea['submitted_date']
         ];
     }, $myIdeas)); ?>;
+
+    const _investorTxData = <?php echo json_encode(array_map(function($tx) {
+        return [
+            'idea_title'     => $tx['idea_title'],
+            'amount'         => (float)$tx['amount'],
+            'date'           => $tx['date'],
+            'type'           => $tx['type'],
+            'payment_method' => $tx['payment_method']
+        ];
+    }, $myTransactions)); ?>;
+
+    const _investorUnlockedData = <?php echo json_encode(array_map(function($idea) {
+        return [
+            'id'           => (int)$idea['id'],
+            'title'        => $idea['title'],
+            'sector'       => $idea['sector'],
+            'expected_roi' => (float)$idea['expected_roi'],
+            'stage'        => $idea['stage'],
+            'unlocked_at'  => $idea['unlocked_at']
+        ];
+    }, $myUnlockedIdeas)); ?>;
+
+    const _investorWatchlistData = <?php echo json_encode(array_map(function($idea) {
+        return [
+            'id'           => (int)$idea['id'],
+            'title'        => $idea['title'],
+            'sector'       => $idea['sector'],
+            'expected_roi' => (float)$idea['expected_roi'],
+            'stage'        => $idea['stage'],
+            'watched_at'   => $idea['watched_at']
+        ];
+    }, $myWatchlistIdeas)); ?>;
+
+    function openInvestorStatsModal(type) {
+        const modal = document.getElementById('stats-modal');
+        const titleEl = modal ? modal.querySelector('.modal-title') : null;
+        const bodyEl  = modal ? modal.querySelector('.modal-body') : null;
+        if (!modal || !titleEl || !bodyEl) return;
+
+        let title = '';
+        let listHTML = '';
+
+        if (type === 'invested') {
+            title = 'Total Invested Funds';
+            if (_investorTxData.length === 0) {
+                listHTML = '<div class="py-6 text-center text-slate-400 text-sm">No transaction history.</div>';
+            } else {
+                _investorTxData.forEach(tx => {
+                    listHTML += `<div class="py-3 flex justify-between items-center border-b border-slate-50 last:border-0">
+                        <div>
+                            <p class="text-sm font-bold text-slate-800">${_esc(tx.idea_title)}</p>
+                            <p class="text-[10px] text-slate-400 font-semibold uppercase mt-0.5">${_esc(tx.date)} &bull; ${_esc(tx.type)} &bull; ${_esc(tx.payment_method)}</p>
+                        </div>
+                        <span class="px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-600 font-black text-xs flex-shrink-0 ml-2">-$${tx.amount.toLocaleString()}</span>
+                    </div>`;
+                });
+            }
+        } else if (type === 'active') {
+            title = 'Active Decrypted Startups';
+            if (_investorUnlockedData.length === 0) {
+                listHTML = '<div class="py-6 text-center text-slate-400 text-sm">No startups decrypted yet.</div>';
+            } else {
+                _investorUnlockedData.forEach(i => {
+                    listHTML += `<div class="py-3 flex justify-between items-center border-b border-slate-50 last:border-0">
+                        <div>
+                            <a href="idea-detail.php?id=${i.id}" class="text-sm font-bold text-slate-800 hover:text-blue-600">${_esc(i.title)}</a>
+                            <p class="text-[10px] text-slate-400 font-semibold uppercase mt-0.5">${_esc(i.sector)} &bull; ${_esc(i.stage)}</p>
+                        </div>
+                        <span class="px-2 py-0.5 rounded bg-blue-50 text-blue-600 font-extrabold text-xs ml-2 flex-shrink-0">ROI: ${i.expected_roi}%</span>
+                    </div>`;
+                });
+            }
+        } else if (type === 'roi') {
+            title = 'Projected ROI Breakdown';
+            if (_investorUnlockedData.length === 0) {
+                listHTML = '<div class="py-6 text-center text-slate-400 text-sm">No decrypted startups to calculate ROI.</div>';
+            } else {
+                let sum = 0;
+                _investorUnlockedData.forEach(i => {
+                    sum += i.expected_roi;
+                    listHTML += `<div class="py-3 flex justify-between items-center border-b border-slate-50 last:border-0">
+                        <div>
+                            <a href="idea-detail.php?id=${i.id}" class="text-sm font-bold text-slate-800 hover:text-blue-600">${_esc(i.title)}</a>
+                            <p class="text-[10px] text-slate-400 font-semibold uppercase mt-0.5">${_esc(i.sector)}</p>
+                        </div>
+                        <span class="text-xs font-black text-emerald-600 ml-2">${i.expected_roi}%</span>
+                    </div>`;
+                });
+                let avg = Math.round(sum / _investorUnlockedData.length);
+                listHTML += `<div class="py-3 flex justify-between items-center font-bold text-slate-800 bg-slate-50 px-2 rounded-xl mt-2">
+                    <span>Average ROI</span>
+                    <span class="text-emerald-600">${avg}%</span>
+                </div>`;
+            }
+        } else if (type === 'watchlist') {
+            title = 'Ideas on Watchlist';
+            if (_investorWatchlistData.length === 0) {
+                listHTML = '<div class="py-6 text-center text-slate-400 text-sm">No ideas added to watchlist.</div>';
+            } else {
+                _investorWatchlistData.forEach(i => {
+                    listHTML += `<div class="py-3 flex justify-between items-center border-b border-slate-50 last:border-0">
+                        <div>
+                            <a href="idea-detail.php?id=${i.id}" class="text-sm font-bold text-slate-800 hover:text-blue-600">${_esc(i.title)}</a>
+                            <p class="text-[10px] text-slate-400 font-semibold uppercase mt-0.5">${_esc(i.sector)} &bull; ${_esc(i.stage)}</p>
+                        </div>
+                        <span class="text-xs font-black text-amber-500 ml-2">ROI: ${i.expected_roi}%</span>
+                    </div>`;
+                });
+            }
+        }
+
+        titleEl.innerText = title;
+        bodyEl.innerHTML = listHTML;
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        lucide.createIcons();
+    }
 
     <?php $myTransactions = dbGetTransactionsByEntrepreneur($userEmail); ?>
     const _txData = <?php echo json_encode(array_map(function($tx) {

@@ -45,8 +45,32 @@ if ($role === 'investor') {
     $intCheck->execute([$userEmail, $ideaId]);
     $alreadyInterested = (bool)$intCheck->fetch();
 
-    // Increment view count (impression) once per page load by investor
-    getDB()->prepare("UPDATE ideas SET views = views + 1 WHERE id = ?")->execute([$ideaId]);
+    // Check if they already watchlisted this idea
+    $watchCheck = getDB()->prepare("
+        SELECT id FROM unlocked_ideas
+        WHERE investor_email = ? AND idea_id = ? AND unlock_type = 'watchlist'
+        LIMIT 1
+    ");
+    $watchCheck->execute([$userEmail, $ideaId]);
+    $alreadyWatched = (bool)$watchCheck->fetch();
+
+    // Increment view count (impression) once per investor
+    $impCheck = getDB()->prepare("
+        SELECT id FROM unlocked_ideas
+        WHERE investor_email = ? AND idea_id = ? AND unlock_type = 'impression'
+        LIMIT 1
+    ");
+    $impCheck->execute([$userEmail, $ideaId]);
+    $alreadyImpressed = (bool)$impCheck->fetch();
+
+    if (!$alreadyImpressed) {
+        getDB()->prepare("
+            INSERT IGNORE INTO unlocked_ideas (investor_email, idea_id, unlock_type)
+            VALUES (?, ?, 'impression')
+        ")->execute([$userEmail, $ideaId]);
+
+        getDB()->prepare("UPDATE ideas SET views = views + 1 WHERE id = ?")->execute([$ideaId]);
+    }
 }
 
 $watermarkClass = ($role === 'investor') ? 'watermarked-container' : '';
@@ -80,16 +104,28 @@ $watermarkClass = ($role === 'investor') ? 'watermarked-container' : '';
                 <span class="text-slate-400 font-bold text-lg">/10</span>
             </div>
             <?php if ($role === 'investor'): ?>
-                <?php if ($alreadyInterested): ?>
-                    <button id="interest-btn" disabled class="px-5 py-2.5 bg-emerald-600 text-white font-bold rounded-xl text-xs shadow-md flex items-center gap-1.5 cursor-default opacity-90">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="vertical-align:middle"><polyline points="20 6 9 17 4 12"/></svg>
-                        Interest Registered
-                    </button>
-                <?php else: ?>
-                    <button onclick="expressInterest()" id="interest-btn" class="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow-md shadow-blue-500/10 flex items-center gap-1.5 transition-all">
-                        <i data-lucide="heart" class="w-4 h-4"></i> Express Interest
-                    </button>
-                <?php endif; ?>
+                <div class="flex flex-wrap gap-2">
+                    <?php if ($alreadyWatched): ?>
+                        <button onclick="toggleWatchlist(0)" id="watch-btn" class="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-xs shadow-md flex items-center gap-1.5 transition-all">
+                            <i data-lucide="star-off" class="w-4 h-4"></i> Unwatch Idea
+                        </button>
+                    <?php else: ?>
+                        <button onclick="toggleWatchlist(1)" id="watch-btn" class="px-5 py-2.5 border border-slate-200 hover:border-amber-300 hover:bg-amber-50 text-slate-600 hover:text-amber-600 font-bold rounded-xl text-xs shadow-sm bg-white flex items-center gap-1.5 transition-all">
+                            <i data-lucide="star" class="w-4 h-4"></i> Watch Idea
+                        </button>
+                    <?php endif; ?>
+
+                    <?php if ($alreadyInterested): ?>
+                        <button id="interest-btn" disabled class="px-5 py-2.5 bg-emerald-600 text-white font-bold rounded-xl text-xs shadow-md flex items-center gap-1.5 cursor-default opacity-90">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="vertical-align:middle"><polyline points="20 6 9 17 4 12"/></svg>
+                            Interest Registered
+                        </button>
+                    <?php else: ?>
+                        <button onclick="expressInterest()" id="interest-btn" class="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow-md shadow-blue-500/10 flex items-center gap-1.5 transition-all">
+                            <i data-lucide="heart" class="w-4 h-4"></i> Express Interest
+                        </button>
+                    <?php endif; ?>
+                </div>
             <?php endif; ?>
         </div>
     </div>
@@ -692,6 +728,48 @@ $watermarkClass = ($role === 'investor') ? 'watermarked-container' : '';
         popup.querySelector('.snackbar-msg').innerText = msg;
         popup.classList.remove('hidden');
         setTimeout(() => popup.classList.add('hidden'), 3500);
+    }
+
+    function toggleWatchlist(watchState) {
+        const btn = document.getElementById('watch-btn');
+        if (!btn || btn.disabled) return;
+
+        btn.disabled = true;
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = '<span style="display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.4);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite;margin-right:6px;vertical-align:middle;"></span> Saving...';
+
+        const fd = new FormData();
+        fd.append('action', 'toggle_watchlist');
+        fd.append('idea_id', <?= $ideaId ?>);
+        fd.append('watch', watchState);
+
+        fetch('api/notification-handler.php', { method: 'POST', body: fd })
+            .then(r => r.json())
+            .then(data => {
+                btn.disabled = false;
+                if (data.success) {
+                    if (watchState === 1) {
+                        btn.outerHTML = `<button onclick="toggleWatchlist(0)" id="watch-btn" class="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-xs shadow-md flex items-center gap-1.5 transition-all">
+                            <i data-lucide="star-off" class="w-4 h-4"></i> Unwatch Idea
+                        </button>`;
+                        showSnackbar('Idea added to your Watchlist!');
+                    } else {
+                        btn.outerHTML = `<button onclick="toggleWatchlist(1)" id="watch-btn" class="px-5 py-2.5 border border-slate-200 hover:border-amber-300 hover:bg-amber-50 text-slate-600 hover:text-amber-600 font-bold rounded-xl text-xs shadow-sm bg-white flex items-center gap-1.5 transition-all">
+                            <i data-lucide="star" class="w-4 h-4"></i> Watch Idea
+                        </button>`;
+                        showSnackbar('Idea removed from your Watchlist.');
+                    }
+                    lucide.createIcons();
+                } else {
+                    btn.innerHTML = originalHTML;
+                    showSnackbar(data.message || 'Could not update watchlist. Please try again.');
+                }
+            })
+            .catch(() => {
+                btn.disabled = false;
+                btn.innerHTML = originalHTML;
+                showSnackbar('Network error. Please try again.');
+            });
     }
 
     function expressInterest() {
