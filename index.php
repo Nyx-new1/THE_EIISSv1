@@ -214,7 +214,7 @@ if ($view === 'features'):
                                 <h3 class="font-heading font-extrabold text-lg text-white mb-2">Intelligent Matching</h3>
                                 <p class="text-slate-300 text-sm leading-relaxed mb-6 font-medium">Our AI-powered engine connects investors with ideas that match their preferences, budget, and risk tolerance.</p>
                             </div>
-                            <div class="flex items-center gap-1 text-xs font-bold text-blue-400 group-hover:text-blue-300 group-hover:gap-2 transition-all">
+                            <div onclick="openDemoModal('matching')" class="flex items-center gap-1 text-xs font-bold text-blue-400 hover:text-blue-300 hover:gap-2 transition-all cursor-pointer w-fit select-none">
                                 <span>Discover Matching</span> <i data-lucide="arrow-right" class="w-4 h-4"></i>
                             </div>
                         </div>
@@ -228,7 +228,7 @@ if ($view === 'features'):
                                 <h3 class="font-heading font-extrabold text-lg text-white mb-2">Blockchain Protection</h3>
                                 <p class="text-slate-300 text-sm leading-relaxed mb-6 font-medium">Every idea is cryptographically hashed and timestamped, ensuring immutable proof of ownership and authenticity.</p>
                             </div>
-                            <div class="flex items-center gap-1 text-xs font-bold text-emerald-400 group-hover:text-emerald-300 group-hover:gap-2 transition-all">
+                            <div onclick="openDemoModal('protection')" class="flex items-center gap-1 text-xs font-bold text-emerald-400 hover:text-emerald-300 hover:gap-2 transition-all cursor-pointer w-fit select-none">
                                 <span>Check Protection</span> <i data-lucide="arrow-right" class="w-4 h-4"></i>
                             </div>
                         </div>
@@ -242,7 +242,7 @@ if ($view === 'features'):
                                 <h3 class="font-heading font-extrabold text-lg text-white mb-2">ROI Analysis</h3>
                                 <p class="text-slate-300 text-sm leading-relaxed mb-6 font-medium">Make highly informed investment decisions with our digital ROI calculator and profitability projections.</p>
                             </div>
-                            <div class="flex items-center gap-1 text-xs font-bold text-purple-400 group-hover:text-purple-300 group-hover:gap-2 transition-all">
+                            <div onclick="openDemoModal('yields')" class="flex items-center gap-1 text-xs font-bold text-purple-400 hover:text-purple-300 hover:gap-2 transition-all cursor-pointer w-fit select-none">
                                 <span>Calculate Yields</span> <i data-lucide="arrow-right" class="w-4 h-4"></i>
                             </div>
                         </div>
@@ -256,7 +256,7 @@ if ($view === 'features'):
                                 <h3 class="font-heading font-extrabold text-lg text-white mb-2">Plagiarism Detection</h3>
                                 <p class="text-slate-300 text-sm leading-relaxed mb-6 font-medium">AI-based similarity analyses review submitted text files to ensure every idea is unique, fresh, and original.</p>
                             </div>
-                            <div class="flex items-center gap-1 text-xs font-bold text-cyan-400 group-hover:text-cyan-300 group-hover:gap-2 transition-all">
+                            <div onclick="openDemoModal('uniqueness')" class="flex items-center gap-1 text-xs font-bold text-cyan-400 hover:text-cyan-300 hover:gap-2 transition-all cursor-pointer w-fit select-none">
                                 <span>Check Uniqueness</span> <i data-lucide="arrow-right" class="w-4 h-4"></i>
                             </div>
                         </div>
@@ -270,7 +270,7 @@ if ($view === 'features'):
                                 <h3 class="font-heading font-extrabold text-lg text-white mb-2">Idea Scoring</h3>
                                 <p class="text-slate-300 text-sm leading-relaxed mb-6 font-medium">Multi-factor evaluation system rates submissions on market potential, innovation, feasibility, and risk.</p>
                             </div>
-                            <div class="flex items-center gap-1 text-xs font-bold text-orange-400 group-hover:text-orange-300 group-hover:gap-2 transition-all">
+                            <div onclick="openDemoModal('scoring')" class="flex items-center gap-1 text-xs font-bold text-orange-400 hover:text-orange-300 hover:gap-2 transition-all cursor-pointer w-fit select-none">
                                 <span>Learn Scoring</span> <i data-lucide="arrow-right" class="w-4 h-4"></i>
                             </div>
                         </div>
@@ -284,7 +284,7 @@ if ($view === 'features'):
                                 <h3 class="font-heading font-extrabold text-lg text-white mb-2">Dynamic Watermarking</h3>
                                 <p class="text-slate-300 text-sm leading-relaxed mb-6 font-medium">Protect your high-end business documents and attachments with traceable, custom watermarks.</p>
                             </div>
-                            <div class="flex items-center gap-1 text-xs font-bold text-amber-400 group-hover:text-amber-300 group-hover:gap-2 transition-all">
+                            <div onclick="openDemoModal('watermarking')" class="flex items-center gap-1 text-xs font-bold text-amber-400 hover:text-amber-300 hover:gap-2 transition-all cursor-pointer w-fit select-none">
                                 <span>Secure Files</span> <i data-lucide="arrow-right" class="w-4 h-4"></i>
                             </div>
                         </div>
@@ -489,6 +489,558 @@ if ($view === 'features'):
             }
         });
     </script>
+
+<!-- ================= INTERACTIVE SIMULATORS MODALS ================= -->
+
+<!-- Common Simulator Modal Container -->
+<div id="simulator-modal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-white rounded-3xl w-full max-w-xl shadow-2xl flex flex-col overflow-hidden max-h-[90vh] border border-slate-200/80 animate-fade-in text-slate-800">
+        
+        <!-- Modal Header -->
+        <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+            <div class="flex items-center gap-3">
+                <div id="modal-icon-container" class="p-2.5 rounded-2xl w-fit">
+                    <!-- Icon will be set dynamically -->
+                </div>
+                <div>
+                    <h3 class="font-heading font-extrabold text-lg text-slate-800" id="modal-title">Simulator Title</h3>
+                    <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider block mt-0.5">Interactive Platform Demo</span>
+                </div>
+            </div>
+            <button onclick="closeDemoModal()" class="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-xl transition-all">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+        </div>
+
+        <!-- Modal Body (Dynamic content) -->
+        <div class="p-6 overflow-y-auto space-y-6 flex-grow" id="modal-body-content">
+            
+            <!-- 1. Matching Simulator -->
+            <div id="sim-matching" class="hidden space-y-5">
+                <p class="text-xs text-slate-500 font-medium">Test how our AI matchmaking algorithm aligns investor parameters with startup sectors, capital targets, and risk profile parameters.</p>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Select Investor Sector Preferences</label>
+                        <div class="flex flex-wrap gap-2">
+                            <button onclick="toggleSimSector(this, 'Technology')" class="px-3 py-1.5 rounded-lg border text-xs font-bold bg-blue-50 border-blue-200 text-blue-600">Technology</button>
+                            <button onclick="toggleSimSector(this, 'Agriculture')" class="px-3 py-1.5 rounded-lg border text-xs font-bold bg-white border-slate-200 text-slate-600 hover:bg-slate-50">Agriculture</button>
+                            <button onclick="toggleSimSector(this, 'Healthcare')" class="px-3 py-1.5 rounded-lg border text-xs font-bold bg-white border-slate-200 text-slate-600 hover:bg-slate-50">Healthcare</button>
+                            <button onclick="toggleSimSector(this, 'FinTech')" class="px-3 py-1.5 rounded-lg border text-xs font-bold bg-white border-slate-200 text-slate-600 hover:bg-slate-50">FinTech</button>
+                            <button onclick="toggleSimSector(this, 'E-Commerce')" class="px-3 py-1.5 rounded-lg border text-xs font-bold bg-white border-slate-200 text-slate-600 hover:bg-slate-50">E-Commerce</button>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label for="sim-matching-budget" class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Max Capital Budget</label>
+                            <div class="flex items-center gap-3">
+                                <input type="range" id="sim-matching-budget" min="10000" max="500000" step="10000" value="150000" oninput="document.getElementById('sim-matching-budval').innerText = '$' + Number(this.value).toLocaleString()" class="w-full range-slider h-2 bg-slate-100 rounded-lg cursor-pointer">
+                                <span class="text-xs font-bold text-slate-700 min-w-[70px] text-right" id="sim-matching-budval">$150,000</span>
+                            </div>
+                        </div>
+                        <div>
+                            <label for="sim-matching-risk" class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Acceptable Risk Tier</label>
+                            <select id="sim-matching-risk" class="block w-full px-3 py-2 border border-slate-200 rounded-xl text-xs bg-slate-50 cursor-pointer font-bold text-slate-600">
+                                <option value="Low">Low Risk</option>
+                                <option value="Medium" selected>Medium Risk</option>
+                                <option value="High">High Risk</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button onclick="runMatchingSimulation()" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow-md shadow-blue-500/10 transition-all flex items-center justify-center gap-1.5">
+                        <i data-lucide="sparkles" class="w-4 h-4"></i> Run AI Matchmaker Scan
+                    </button>
+                    <div id="sim-matching-results" class="hidden space-y-3 pt-3 border-t border-slate-100">
+                        <h4 class="font-heading font-extrabold text-xs text-slate-800 uppercase tracking-wider">Top AI Simulated Matches</h4>
+                        <div class="space-y-2.5" id="sim-matching-list"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. Protection Simulator -->
+            <div id="sim-protection" class="hidden space-y-5">
+                <p class="text-xs text-slate-500 font-medium">Verify cryptographically secured proof-of-ownership hashes registered on the simulated decentralized blockchain ledger.</p>
+                <div class="space-y-4">
+                    <div>
+                        <label for="sim-protection-hash" class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Enter Idea Blockchain Hash</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="sim-protection-hash" placeholder="e.g. 0x2b89c108..." class="flex-grow px-4 py-2.5 border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:border-emerald-500 bg-slate-50 text-slate-700">
+                            <button onclick="fillSampleHash()" class="px-3.5 py-2.5 border border-slate-200 text-slate-600 hover:text-emerald-600 font-bold rounded-xl text-xs bg-white shadow-sm transition-all whitespace-nowrap">Sample Hash</button>
+                        </div>
+                    </div>
+                    <button onclick="runProtectionSimulation()" class="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-md shadow-emerald-500/10 transition-all flex items-center justify-center gap-1.5">
+                        <i data-lucide="shield-alert" class="w-4 h-4"></i> Verify Blockchain Ledger Proof
+                    </button>
+                    <div id="sim-protection-results" class="hidden pt-3 border-t border-slate-100 animate-fade-in">
+                        <div class="bg-emerald-50/50 border border-emerald-100/80 rounded-2xl p-4.5 space-y-3 text-xs">
+                            <div class="flex items-center gap-2 text-emerald-800 font-extrabold">
+                                <i data-lucide="check-circle" class="w-5 h-5 text-emerald-600"></i>
+                                <span>IMMUTABLE PROOF OF OWNERSHIP VALIDATED</span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-3.5 pt-2 text-slate-600 font-semibold border-t border-emerald-100/60 text-left">
+                                <div>
+                                    <span class="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Block Number</span>
+                                    <span class="text-slate-800 font-mono" id="sim-prot-block">#3,482,901</span>
+                                </div>
+                                <div>
+                                    <span class="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Timestamp</span>
+                                    <span class="text-slate-800" id="sim-prot-time">2026-07-05 20:19:00</span>
+                                </div>
+                                <div>
+                                    <span class="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Proof Standard</span>
+                                    <span class="text-slate-800 uppercase">SHA-256 HASH</span>
+                                </div>
+                                <div>
+                                    <span class="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Gas Fee (Spent)</span>
+                                    <span class="text-slate-800">0.00018 ETH</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. Yields Simulator -->
+            <div id="sim-yields" class="hidden space-y-5">
+                <p class="text-xs text-slate-500 font-medium">Model projected investment outputs and break-even intervals instantly by tweaking targets.</p>
+                <div class="space-y-4">
+                    <div class="space-y-3.5 bg-slate-50 p-4.5 rounded-2xl border border-slate-100">
+                        <div>
+                            <label for="sim-yields-capital" class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Required Capital Investment</label>
+                            <div class="flex items-center gap-3">
+                                <input type="range" id="sim-yields-capital" min="5000" max="150000" step="5000" value="50000" oninput="calculateYields()" class="w-full range-slider h-2 bg-slate-200 rounded-lg cursor-pointer">
+                                <span class="text-xs font-bold text-slate-700 min-w-[70px] text-right" id="sim-yields-capval">$50,000</span>
+                            </div>
+                        </div>
+                        <div>
+                            <label for="sim-yields-revenue" class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Expected Year-1 Revenue</label>
+                            <div class="flex items-center gap-3">
+                                <input type="range" id="sim-yields-revenue" min="10000" max="250000" step="5000" value="80000" oninput="calculateYields()" class="w-full range-slider h-2 bg-slate-200 rounded-lg cursor-pointer">
+                                <span class="text-xs font-bold text-slate-700 min-w-[70px] text-right" id="sim-yields-revval">$80,000</span>
+                            </div>
+                        </div>
+                        <div>
+                            <label for="sim-yields-margin" class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Projected Net Margin</label>
+                            <div class="flex items-center gap-3">
+                                <input type="range" id="sim-yields-margin" min="10" max="80" step="5" value="35" oninput="calculateYields()" class="w-full range-slider h-2 bg-slate-200 rounded-lg cursor-pointer">
+                                <span class="text-xs font-bold text-slate-700 min-w-[70px] text-right" id="sim-yields-margval">35%</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-3 gap-3.5 pt-3 border-t border-slate-100 text-center">
+                        <div class="bg-purple-50/50 p-3 rounded-2xl border border-purple-100">
+                            <span class="block text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-1">Annual Profit</span>
+                            <span class="text-xs sm:text-sm font-black text-purple-700" id="sim-yields-profit">$28,000</span>
+                        </div>
+                        <div class="bg-purple-50/50 p-3 rounded-2xl border border-purple-100">
+                            <span class="block text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-1">Projected ROI</span>
+                            <span class="text-xs sm:text-sm font-black text-purple-700" id="sim-yields-roi">56%</span>
+                        </div>
+                        <div class="bg-purple-50/50 p-3 rounded-2xl border border-purple-100">
+                            <span class="block text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-1">Break-Even</span>
+                            <span class="text-xs sm:text-sm font-black text-purple-700" id="sim-yields-breakeven">21.4 Mos</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. Uniqueness Simulator -->
+            <div id="sim-uniqueness" class="hidden space-y-5">
+                <p class="text-xs text-slate-500 font-medium">Verify the originality of proposal abstracts against existing entries in the network database to secure ownership rights.</p>
+                <div class="space-y-4">
+                    <div>
+                        <label for="sim-uniqueness-text" class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Paste Idea Pitch Abstract</label>
+                        <textarea id="sim-uniqueness-text" rows="3" placeholder="Describe your startup idea briefly to check for originality..." class="block w-full px-4 py-2.5 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-cyan-500 bg-slate-50/50 text-slate-700"></textarea>
+                    </div>
+                    <button onclick="runUniquenessSimulation()" class="w-full py-3 bg-cyan-600 hover:bg-cyan-700 text-white font-bold rounded-xl text-xs shadow-md shadow-cyan-500/10 transition-all flex items-center justify-center gap-1.5">
+                        <i data-lucide="scan" class="w-4 h-4"></i> Run Plagiarism Analysis
+                    </button>
+                    <div id="sim-uniqueness-results" class="hidden pt-3 border-t border-slate-100">
+                        <div class="bg-cyan-50 border border-cyan-100 rounded-2xl p-4.5 space-y-2 text-xs text-left">
+                            <div class="flex items-center justify-between font-bold text-slate-700">
+                                <span>Originality Rating</span>
+                                <span class="text-cyan-700 text-sm font-black" id="sim-uniq-score">96% Original</span>
+                            </div>
+                            <div class="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                                <div class="bg-cyan-500 h-full transition-all duration-500" id="sim-uniq-bar" style="width: 96%"></div>
+                            </div>
+                            <p class="text-[10px] text-slate-400 font-semibold mt-1.5 leading-relaxed" id="sim-uniq-verdict">Validation passes. Excellent uniqueness index – proposal abstract contains no matches in existing database.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 5. Scoring Simulator -->
+            <div id="sim-scoring" class="hidden space-y-5">
+                <p class="text-xs text-slate-500 font-medium">Explore how the AI grading system evaluates proposals across 4 major dimensions to calculate the final Score out of 10.</p>
+                <div class="space-y-4">
+                    <div class="space-y-3.5 bg-slate-50 p-4.5 rounded-2xl border border-slate-100">
+                        <div>
+                            <label for="sim-score-market" class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Market Potential (Weight: 30%)</label>
+                            <div class="flex items-center gap-3">
+                                <input type="range" id="sim-score-market" min="1" max="10" step="0.5" value="7.5" oninput="calculateScoring()" class="w-full range-slider h-2 bg-slate-200 rounded-lg cursor-pointer">
+                                <span class="text-xs font-bold text-slate-700 min-w-[35px] text-right" id="sim-score-mval">7.5</span>
+                            </div>
+                        </div>
+                        <div>
+                            <label for="sim-score-innovation" class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Innovation Quotient (Weight: 30%)</label>
+                            <div class="flex items-center gap-3">
+                                <input type="range" id="sim-score-innovation" min="1" max="10" step="0.5" value="8.0" oninput="calculateScoring()" class="w-full range-slider h-2 bg-slate-200 rounded-lg cursor-pointer">
+                                <span class="text-xs font-bold text-slate-700 min-w-[35px] text-right" id="sim-score-ival">8.0</span>
+                            </div>
+                        </div>
+                        <div>
+                            <label for="sim-score-feasibility" class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Feasibility & Realism (Weight: 20%)</label>
+                            <div class="flex items-center gap-3">
+                                <input type="range" id="sim-score-feasibility" min="1" max="10" step="0.5" value="6.5" oninput="calculateScoring()" class="w-full range-slider h-2 bg-slate-200 rounded-lg cursor-pointer">
+                                <span class="text-xs font-bold text-slate-700 min-w-[35px] text-right" id="sim-score-fval">6.5</span>
+                            </div>
+                        </div>
+                        <div>
+                            <label for="sim-score-finance" class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Financial Viability (Weight: 20%)</label>
+                            <div class="flex items-center gap-3">
+                                <input type="range" id="sim-score-finance" min="1" max="10" step="0.5" value="7.0" oninput="calculateScoring()" class="w-full range-slider h-2 bg-slate-200 rounded-lg cursor-pointer">
+                                <span class="text-xs font-bold text-slate-700 min-w-[35px] text-right" id="sim-score-fnval">7.0</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="p-4.5 bg-orange-50 border border-orange-100 rounded-2xl text-center space-y-2.5">
+                        <span class="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Calculated AI Idea Score</span>
+                        <div class="text-3xl font-heading font-black text-orange-600" id="sim-score-result">7.4 / 10</div>
+                        <p class="text-xs text-slate-500 font-medium px-4 leading-relaxed" id="sim-score-desc">Strong Concept: Meets platform guidelines with active regional validation parameters.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 6. Watermarking Simulator -->
+            <div id="sim-watermarking" class="hidden space-y-5">
+                <p class="text-xs text-slate-500 font-medium">Input your name to see how our dynamic watermarking system dynamically overlays recipient data and timestamps on pitch decks to trace leaks.</p>
+                <div class="space-y-4">
+                    <div>
+                        <label for="sim-watermark-name" class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Recipient Name / Company</label>
+                        <input type="text" id="sim-watermark-name" value="Investor John Doe" oninput="updateWatermarkOverlay()" placeholder="Type a recipient name..." class="block w-full px-4 py-2.5 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-amber-500 bg-slate-50 text-slate-700">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Watermarked PDF Document Preview</label>
+                        <div class="border rounded-2xl bg-slate-100 p-8 text-center relative overflow-hidden h-44 flex items-center justify-center border-slate-200">
+                            <!-- Document content -->
+                            <div class="relative z-10 space-y-2">
+                                <i data-lucide="file-text" class="w-8 h-8 text-slate-400 mx-auto"></i>
+                                <span class="block font-bold text-xs text-slate-700">BUSINESS PLAN DECK</span>
+                                <span class="block text-[10px] text-slate-400">Section 1: Confidential Market Projections</span>
+                            </div>
+                            <!-- Dynamic Watermark overlay lines repeating -->
+                            <div id="sim-watermark-overlay" class="absolute inset-0 pointer-events-none select-none opacity-[0.08] flex flex-wrap gap-x-8 gap-y-12 items-center justify-center p-4 font-mono font-bold text-[8px] text-black uppercase tracking-wider rotate-[-20deg]">
+                                <!-- Will be loaded dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="p-5 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between">
+            <span class="text-[10px] text-slate-400 font-semibold">Join EIISS to unlock full automated systems.</span>
+            <div class="flex gap-2">
+                <button onclick="closeDemoModal()" class="px-4 py-2 border border-slate-200 text-slate-500 hover:bg-slate-50 font-bold rounded-xl text-xs transition-all bg-white shadow-sm">Close Demo</button>
+                <a href="register.php" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition-all shadow-md shadow-blue-500/10">Get Verified Account</a>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    // Global simulation matching sector
+    let simSector = 'Technology';
+
+    function openDemoModal(type) {
+        const modal = document.getElementById('simulator-modal');
+        const headerContainer = document.getElementById('modal-icon-container');
+        const titleEl = document.getElementById('modal-title');
+        
+        // Hide all blocks
+        document.getElementById('sim-matching').classList.add('hidden');
+        document.getElementById('sim-protection').classList.add('hidden');
+        document.getElementById('sim-yields').classList.add('hidden');
+        document.getElementById('sim-uniqueness').classList.add('hidden');
+        document.getElementById('sim-scoring').classList.add('hidden');
+        document.getElementById('sim-watermarking').classList.add('hidden');
+        
+        // Setup details
+        if (type === 'matching') {
+            headerContainer.className = "p-2.5 rounded-2xl w-fit bg-blue-50 text-blue-600";
+            headerContainer.innerHTML = '<i data-lucide="users" class="w-5 h-5"></i>';
+            titleEl.innerText = "Investor Matchmaker Simulator";
+            document.getElementById('sim-matching').classList.remove('hidden');
+            document.getElementById('sim-matching-results').classList.add('hidden');
+        } else if (type === 'protection') {
+            headerContainer.className = "p-2.5 rounded-2xl w-fit bg-emerald-50 text-emerald-600";
+            headerContainer.innerHTML = '<i data-lucide="shield" class="w-5 h-5"></i>';
+            titleEl.innerText = "Blockchain Ledger Verification";
+            document.getElementById('sim-protection').classList.remove('hidden');
+            document.getElementById('sim-protection-results').classList.add('hidden');
+        } else if (type === 'yields') {
+            headerContainer.className = "p-2.5 rounded-2xl w-fit bg-purple-50 text-purple-600";
+            headerContainer.innerHTML = '<i data-lucide="bar-chart-3" class="w-5 h-5"></i>';
+            titleEl.innerText = "ROI Projections Calculator";
+            document.getElementById('sim-yields').classList.remove('hidden');
+            calculateYields();
+        } else if (type === 'uniqueness') {
+            headerContainer.className = "p-2.5 rounded-2xl w-fit bg-cyan-50 text-cyan-600";
+            headerContainer.innerHTML = '<i data-lucide="check-circle" class="w-5 h-5"></i>';
+            titleEl.innerText = "AI Originality Checker Simulator";
+            document.getElementById('sim-uniqueness').classList.remove('hidden');
+            document.getElementById('sim-uniqueness-results').classList.add('hidden');
+            document.getElementById('sim-uniqueness-text').value = '';
+        } else if (type === 'scoring') {
+            headerContainer.className = "p-2.5 rounded-2xl w-fit bg-orange-50 text-orange-600";
+            headerContainer.innerHTML = '<i data-lucide="trending-up" class="w-5 h-5"></i>';
+            titleEl.innerText = "Multi-Factor Scoring Weights";
+            document.getElementById('sim-scoring').classList.remove('hidden');
+            calculateScoring();
+        } else if (type === 'watermarking') {
+            headerContainer.className = "p-2.5 rounded-2xl w-fit bg-amber-50 text-amber-600";
+            headerContainer.innerHTML = '<i data-lucide="lock" class="w-5 h-5"></i>';
+            titleEl.innerText = "Confidential Watermark customizer";
+            document.getElementById('sim-watermarking').classList.remove('hidden');
+            updateWatermarkOverlay();
+        }
+
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        lucide.createIcons();
+    }
+
+    function closeDemoModal() {
+        const modal = document.getElementById('simulator-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+    }
+
+    // Matching Simulator script
+    function toggleSimSector(btn, sector) {
+        simSector = sector;
+        // Reset buttons background
+        const container = btn.parentNode;
+        container.querySelectorAll('button').forEach(b => {
+            b.className = "px-3 py-1.5 rounded-lg border text-xs font-bold bg-white border-slate-200 text-slate-600 hover:bg-slate-50";
+        });
+        btn.className = "px-3 py-1.5 rounded-lg border text-xs font-bold bg-blue-50 border-blue-200 text-blue-600";
+    }
+
+    function runMatchingSimulation() {
+        const budget = parseInt(document.getElementById('sim-matching-budget').value);
+        const risk = document.getElementById('sim-matching-risk').value;
+        const resultsBox = document.getElementById('sim-matching-results');
+        const resultsList = document.getElementById('sim-matching-list');
+        
+        resultsList.innerHTML = `
+            <div class="py-6 text-center text-slate-400 flex flex-col items-center">
+                <div class="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mb-2"></div>
+                <span class="text-xs font-semibold">Running AI matching scan...</span>
+            </div>
+        `;
+        resultsBox.classList.remove('hidden');
+
+        setTimeout(() => {
+            const projects = [
+                { title: 'EcoFarm Drip Systems', sector: 'Agriculture', budget: 45000, risk: 'Low', score: 9.6 },
+                { title: 'PayFast Mobile Wallet', sector: 'FinTech', budget: 120000, risk: 'Medium', score: 9.4 },
+                { title: 'HealthTrak Diagnostic Suite', sector: 'Healthcare', budget: 95000, risk: 'Medium', score: 9.1 },
+                { title: 'AgriCorp Seed Vending', sector: 'Agriculture', budget: 35000, risk: 'Low', score: 8.8 },
+                { title: 'SokoFree E-comm Hub', sector: 'E-Commerce', budget: 200000, risk: 'High', score: 8.5 },
+                { title: 'EduLearn Remote Video', sector: 'Technology', budget: 75000, risk: 'Low', score: 8.2 },
+                { title: 'SmartGrid Dar IoT Node', sector: 'Technology', budget: 180000, risk: 'High', score: 9.2 }
+            ];
+
+            const filtered = projects.filter(p => p.sector === simSector || p.risk === risk);
+            filtered.sort((a,b) => b.score - a.score);
+
+            resultsList.innerHTML = '';
+            if (filtered.length === 0) {
+                resultsList.innerHTML = '<p class="text-xs text-slate-400 text-center py-2 font-semibold">No simulation matches found for parameters.</p>';
+                return;
+            }
+
+            filtered.forEach(p => {
+                const diffPct = Math.min(100, Math.round(100 - (Math.abs(p.budget - budget) / budget) * 20));
+                const matchVal = Math.round((p.score * 10 + diffPct) / 2);
+                resultsList.innerHTML += `
+                    <div class="flex justify-between items-center bg-slate-50 hover:bg-slate-100/80 p-3 rounded-xl border border-slate-100 transition-colors text-left">
+                        <div>
+                            <span class="block font-bold text-xs text-slate-800">${p.title}</span>
+                            <span class="text-[9px] text-slate-400 font-semibold uppercase mt-0.5">${p.sector} &bull; ${p.risk} Risk &bull; Target: $${p.budget.toLocaleString()}</span>
+                        </div>
+                        <div class="text-right flex items-center gap-2">
+                            <span class="px-2 py-0.5 text-[9px] font-black text-blue-600 bg-blue-50 border border-blue-100 rounded-full">${matchVal}% Match</span>
+                        </div>
+                    </div>
+                `;
+            });
+        }, 1200);
+    }
+
+    // Protection Simulator
+    function fillSampleHash() {
+        const hashes = [
+            '0x8f2d9c104abcf402da19f2a2491a92e105e1948482abf0f0b4d4e284a26101c8',
+            '0xd2a49fbf8d1a1b181c0024f9b8c005f02abcb47d962ea98c74fb91e0a29487c5',
+            '0x7c92b84a92c90e3ab7c0e0b4ffc5d80b62e49c0d12e840d02b89f81a7a402cb9'
+        ];
+        document.getElementById('sim-protection-hash').value = hashes[Math.floor(Math.random() * hashes.length)];
+    }
+
+    function runProtectionSimulation() {
+        const hashVal = document.getElementById('sim-protection-hash').value.trim();
+        const resultsBox = document.getElementById('sim-protection-results');
+        
+        if (!hashVal) {
+            alert('Please enter or scan a hash first.');
+            return;
+        }
+
+        resultsBox.innerHTML = `
+            <div class="py-6 text-center text-slate-400 flex flex-col items-center">
+                <div class="w-6 h-6 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mb-2"></div>
+                <span class="text-xs font-semibold">Running ledger scan for hash records...</span>
+            </div>
+        `;
+        resultsBox.classList.remove('hidden');
+
+        setTimeout(() => {
+            const blockNum = Math.floor(Math.random() * 2000000) + 1500000;
+            const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
+            resultsBox.innerHTML = `
+                <div class="bg-emerald-50/50 border border-emerald-100/80 rounded-2xl p-4.5 space-y-3 text-xs animate-fade-in text-left">
+                    <div class="flex items-center gap-2 text-emerald-800 font-extrabold">
+                        <i data-lucide="check-circle" class="w-5 h-5 text-emerald-600"></i>
+                        <span>IMMUTABLE PROOF OF OWNERSHIP VALIDATED</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3.5 pt-2 text-slate-600 font-semibold border-t border-emerald-100/60">
+                        <div>
+                            <span class="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Block Number</span>
+                            <span class="text-slate-800 font-mono">#${blockNum.toLocaleString()}</span>
+                        </div>
+                        <div>
+                            <span class="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Timestamp</span>
+                            <span class="text-slate-800">${now}</span>
+                        </div>
+                        <div>
+                            <span class="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Proof Standard</span>
+                            <span class="text-slate-800 uppercase">SHA-256 NOTARIZATION</span>
+                        </div>
+                        <div>
+                            <span class="block text-[9px] text-slate-400 font-bold uppercase tracking-wider">Gas Fee (Spent)</span>
+                            <span class="text-slate-800">0.00018 ETH</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            lucide.createIcons();
+        }, 1000);
+    }
+
+    // Yields simulator
+    function calculateYields() {
+        const capital = parseInt(document.getElementById('sim-yields-capital').value);
+        const revenue = parseInt(document.getElementById('sim-yields-revenue').value);
+        const margin = parseInt(document.getElementById('sim-yields-margin').value);
+
+        document.getElementById('sim-yields-capval').innerText = '$' + capital.toLocaleString();
+        document.getElementById('sim-yields-revval').innerText = '$' + revenue.toLocaleString();
+        document.getElementById('sim-yields-margval').innerText = margin + '%';
+
+        const profit = Math.round(revenue * (margin / 100));
+        const roi = Math.round((profit / capital) * 100);
+        
+        let breakEven = 'N/A';
+        if (profit > 0) {
+            const monthlyProfit = profit / 12;
+            breakEven = (capital / monthlyProfit).toFixed(1) + ' Mos';
+        }
+
+        document.getElementById('sim-yields-profit').innerText = '$' + profit.toLocaleString();
+        document.getElementById('sim-yields-roi').innerText = roi + '%';
+        document.getElementById('sim-yields-breakeven').innerText = breakEven;
+    }
+
+    // Uniqueness Simulator
+    function runUniquenessSimulation() {
+        const text = document.getElementById('sim-uniqueness-text').value.trim();
+        const resultsBox = document.getElementById('sim-uniqueness-results');
+        
+        if (!text) {
+            alert('Please paste or write a proposal idea abstract first.');
+            return;
+        }
+
+        resultsBox.innerHTML = `
+            <div class="py-6 text-center text-slate-400 flex flex-col items-center">
+                <div class="w-6 h-6 border-2 border-cyan-600 border-t-transparent rounded-full animate-spin mb-2"></div>
+                <span class="text-xs font-semibold">Comparing terms with global registry...</span>
+            </div>
+        `;
+        resultsBox.classList.remove('hidden');
+
+        setTimeout(() => {
+            const scores = [92.4, 94.8, 96.2, 98.6];
+            const score = scores[Math.floor(Math.random() * scores.length)];
+            resultsBox.innerHTML = `
+                <div class="bg-cyan-50 border border-cyan-100 rounded-2xl p-4.5 space-y-2 text-xs animate-fade-in text-left">
+                    <div class="flex items-center justify-between font-bold text-slate-700">
+                        <span>Originality Rating</span>
+                        <span class="text-cyan-700 text-sm font-black">${score}% Original</span>
+                    </div>
+                    <div class="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                        <div class="bg-cyan-500 h-full transition-all duration-500" style="width: ${score}%"></div>
+                    </div>
+                    <p class="text-[10px] text-slate-400 font-semibold mt-1.5 leading-relaxed">Validation passes. Excellent uniqueness index – proposal abstract contains no copy matches in existing database.</p>
+                </div>
+            `;
+        }, 1000);
+    }
+
+    // Scoring Simulator
+    function calculateScoring() {
+        const market = parseFloat(document.getElementById('sim-score-market').value);
+        const innovation = parseFloat(document.getElementById('sim-score-innovation').value);
+        const feasibility = parseFloat(document.getElementById('sim-score-feasibility').value);
+        const finance = parseFloat(document.getElementById('sim-score-finance').value);
+
+        document.getElementById('sim-score-mval').innerText = market.toFixed(1);
+        document.getElementById('sim-score-ival').innerText = innovation.toFixed(1);
+        document.getElementById('sim-score-fval').innerText = feasibility.toFixed(1);
+        document.getElementById('sim-score-fnval').innerText = finance.toFixed(1);
+
+        const finalScore = (market * 0.3 + innovation * 0.3 + feasibility * 0.2 + finance * 0.2).toFixed(1);
+        document.getElementById('sim-score-result').innerText = finalScore + ' / 10';
+
+        let desc = 'Strong Concept: Meets platform guidelines with active regional validation parameters.';
+        if (finalScore >= 8.5) {
+            desc = 'Exceptional Concept: High profitability quotient, distinct barrier to entry, and feasible setup.';
+        } else if (finalScore < 6.0) {
+            desc = 'Needs Improvement: Capital requirements or feasibility barriers indicate high operational risk.';
+        }
+        document.getElementById('sim-score-desc').innerText = desc;
+    }
+
+    // Watermark Simulator
+    function updateWatermarkOverlay() {
+        const nameInput = document.getElementById('sim-watermark-name').value.trim() || 'Confidential';
+        const overlay = document.getElementById('sim-watermark-overlay');
+        const now = new Date().toISOString().substring(0, 10);
+        
+        let words = '';
+        for (let i = 0; i < 4; i++) {
+            words += `<span class="inline-block p-2 border border-slate-400/20 rounded m-1">EIISS PROT &bull; ${nameInput} &bull; ${now}</span>`;
+        }
+        overlay.innerHTML = words;
+    }
+</script>
 
 <?php
 require_once __DIR__ . '/includes/footer.php';
