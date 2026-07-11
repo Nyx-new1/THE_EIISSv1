@@ -79,6 +79,76 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $newIdeaId = (int)$db->lastInsertId();
 
+    // Save Campaign Crowdfunding Metadata
+    $campaignType = $_POST['campaignType'] ?? 'rewards';
+    $fundingDeadline = $_POST['fundingDeadline'] ?? '';
+    $equityOffered = (float)($_POST['equityOffered'] ?? 0);
+    $coveredArea = $_POST['coveredArea'] ?? 'Dar es Salaam, Tanzania';
+
+    $companyValuation = (float)($_POST['companyValuation'] ?? 0);
+    $minInvestment = (float)($_POST['minInvestment'] ?? 0);
+    $maxInvestment = (float)($_POST['maxInvestment'] ?? 0);
+    $exitStrategy = trim($_POST['exitStrategy'] ?? '');
+    $fundingRound = $_POST['fundingRound'] ?? 'Seed';
+
+    $sectorsKeywords = [
+        'technology' => ['digital transformation', 'scalable software platform', 'user-centric experience'],
+        'healthcare' => ['patient care integration', 'clinical workflow efficiency', 'telehealth scalability'],
+        'agriculture' => ['crop yield optimization', 'supply chain transparency', 'sustainable farming practice'],
+        'education' => ['personalized learning pathway', 'accessible digital curriculum', 'interactive learning dashboard'],
+        'ecommerce' => ['frictionless customer checkout', 'direct-to-consumer delivery infrastructure', 'omnichannel retail integration'],
+        'fintech' => ['secure mobile transaction payment', 'automated lending underwriting', 'inclusive digital banking accessibility'],
+        'manufacturing' => ['lean factory logistics automation', 'predictive product maintenance schedule', 'locally sourced materials optimization']
+    ];
+    $chosenKeywords = $sectorsKeywords[strtolower($sector)] ?? ['innovative market solution', 'sustainable growth structure', 'optimized platform features'];
+    
+    $aiSummaryVal = "EIISS AI Copilot summary: This startup venture focuses on \"$title\" in the $sector industry. By leveraging " . $chosenKeywords[0] . ", the startup addresses key sector bottlenecks to create a " . $chosenKeywords[1] . ". Market positioning suggests a strong fit due to localized " . $chosenKeywords[2] . " across East Africa.";
+    
+    $aiRiskVal = "EIISS AI Copilot risk analysis:\n" .
+              "1. Market Penetration Risk: Customer acquisition costs in the $sector segment might fluctuate depending on competitor density.\n" .
+              "2. Execution Risk: Maintaining a high quality " . $chosenKeywords[1] . " requires hiring specialized local talent.\n" .
+              "3. Regulatory Compliance: Tanzania investment compliance guidelines require explicit licensing structure.";
+
+    $upStmt = $db->prepare("
+        UPDATE ideas 
+        SET funding_goal = ?, funding_deadline = ?, campaign_type = ?, equity_offered = ?, covered_area = ?,
+            company_valuation = ?, min_investment = ?, max_investment = ?, exit_strategy = ?, funding_round = ?,
+            ai_summary = ?, ai_risk_analysis = ?
+        WHERE id = ?
+    ");
+    $upStmt->execute([
+        $capitalRequired, $fundingDeadline, $campaignType, $equityOffered, $coveredArea,
+        $companyValuation, $minInvestment, $maxInvestment, $exitStrategy, $fundingRound,
+        $aiSummaryVal, $aiRiskVal,
+        $newIdeaId
+    ]);
+
+    // Insert pledge / reward tiers
+    if (!empty($_POST['tier_title'])) {
+        $tierTitles = $_POST['tier_title'];
+        $tierDescs = $_POST['tier_desc'] ?? [];
+        $tierAmounts = $_POST['tier_amount'] ?? [];
+        $tierEquities = $_POST['tier_equity'] ?? [];
+        $tierDeliveries = $_POST['tier_delivery'] ?? [];
+
+        $tierStmt = $db->prepare("
+            INSERT INTO pledge_tiers (idea_id, title, description, amount, equity_pct, delivery_date)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ");
+        for ($i = 0; $i < count($tierTitles); $i++) {
+            if (trim($tierTitles[$i]) !== '') {
+                $tierStmt->execute([
+                    $newIdeaId,
+                    trim($tierTitles[$i]),
+                    trim($tierDescs[$i] ?? ''),
+                    (float)($tierAmounts[$i] ?? 0),
+                    (float)($tierEquities[$i] ?? 0),
+                    trim($tierDeliveries[$i] ?? '')
+                ]);
+            }
+        }
+    }
+
     // Save actual attachments if uploaded
     if (!empty($_FILES['idea_files']['name'][0])) {
         $uploadDir = __DIR__ . '/uploads/attachments/';
@@ -262,14 +332,14 @@ require_once __DIR__ . '/includes/header.php';
             </div>
         </div>
 
-        <!-- STEP 2: FINANCIALS -->
+        <!-- STEP 2: FINANCIALS & CAMPAIGN DETAILS -->
         <div id="step-section-2" class="step-form-block space-y-4 hidden">
-            <h2 class="font-heading font-extrabold text-lg text-slate-800">Financial Requirements & Projections</h2>
+            <h2 class="font-heading font-extrabold text-lg text-slate-800">Financial Requirements & Crowdfunding Details</h2>
             
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                    <label for="capitalRequired" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Required Capital (USD)</label>
-                    <input type="number" name="capitalRequired" id="capitalRequired" placeholder="50000" class="block w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-slate-50/50">
+                    <label for="capitalRequired" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Required Capital / Goal (TZS)</label>
+                    <input type="number" name="capitalRequired" id="capitalRequired" placeholder="50000000" class="block w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-slate-50/50">
                 </div>
                 <div>
                     <label for="expectedROI" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Expected Project ROI (%)</label>
@@ -293,6 +363,118 @@ require_once __DIR__ . '/includes/header.php';
                 <div>
                     <label for="teamSize" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Founding Team Size</label>
                     <input type="number" name="teamSize" id="teamSize" placeholder="3" class="block w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-slate-50/50">
+                </div>
+            </div>
+
+            <!-- Tanzania Only Geographic Coverage -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label for="coveredArea" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Geographic Scope (Tanzania Only)</label>
+                    <select name="coveredArea" id="coveredArea" class="block w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-slate-50/50 cursor-pointer font-bold text-slate-600">
+                        <option value="Dar es Salaam, Tanzania">Dar es Salaam, Tanzania</option>
+                        <option value="Dodoma, Tanzania">Dodoma, Tanzania</option>
+                        <option value="Arusha, Tanzania">Arusha, Tanzania</option>
+                        <option value="Mwanza, Tanzania">Mwanza, Tanzania</option>
+                        <option value="Kilimanjaro, Tanzania">Kilimanjaro, Tanzania</option>
+                        <option value="Mbeya, Tanzania">Mbeya, Tanzania</option>
+                        <option value="Morogoro, Tanzania">Morogoro, Tanzania</option>
+                        <option value="Tanga, Tanzania">Tanga, Tanzania</option>
+                        <option value="Zanzibar, Tanzania">Zanzibar, Tanzania</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="campaignType" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Crowdfunding Model Type</label>
+                    <select name="campaignType" id="campaignType" onchange="toggleCampaignModelFields(this.value)" class="block w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-slate-50/50 cursor-pointer font-bold text-slate-600">
+                        <option value="rewards">Rewards-based Crowdfunding (Kickstarter Style)</option>
+                        <option value="equity">Equity Investment Crowdfunding (Republic/Wefunder Style)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label for="fundingDeadline" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Campaign Funding Deadline</label>
+                    <input type="date" name="fundingDeadline" id="fundingDeadline" required value="<?= date('Y-m-d', strtotime('+30 days')) ?>" class="block w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-slate-50/50 font-bold text-slate-600">
+                </div>
+                <div id="equity-offered-container" class="hidden">
+                    <label for="equityOffered" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Overall Equity Offered (%)</label>
+                    <input type="number" name="equityOffered" id="equityOffered" placeholder="10" min="0.1" max="99" step="0.1" class="block w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-slate-50/50">
+                </div>
+            </div>
+
+            <!-- Dynamic Equity Crowdfunding Inputs -->
+            <div id="equity-details-container" class="grid grid-cols-1 sm:grid-cols-2 gap-4 hidden bg-slate-50/50 p-4 rounded-xl border border-slate-200/50 col-span-2">
+                <div>
+                    <label for="companyValuation" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Company Valuation (TZS)</label>
+                    <input type="number" name="companyValuation" id="companyValuation" placeholder="500000000" class="block w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white">
+                </div>
+                <div>
+                    <label for="fundingRound" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Funding Round</label>
+                    <select name="fundingRound" id="fundingRound" class="block w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white cursor-pointer font-bold text-slate-600">
+                        <option value="Pre-Seed">Pre-Seed</option>
+                        <option value="Seed" selected>Seed</option>
+                        <option value="Series A">Series A</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="minInvestment" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Minimum Investment (TZS)</label>
+                    <input type="number" name="minInvestment" id="minInvestment" placeholder="1000000" class="block w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white">
+                </div>
+                <div>
+                    <label for="maxInvestment" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Maximum Investment (TZS)</label>
+                    <input type="number" name="maxInvestment" id="maxInvestment" placeholder="50000000" class="block w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white">
+                </div>
+                <div class="sm:col-span-2">
+                    <label for="exitStrategy" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Exit Strategy & Investor Returns Strategy</label>
+                    <input type="text" name="exitStrategy" id="exitStrategy" placeholder="e.g. Share repurchase in 5 years or acquisition by larger regional player" class="block w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white">
+                </div>
+            </div>
+
+            <!-- Dynamic Reward / Pledge Tiers constructor -->
+            <div class="pt-4 border-t border-slate-100 space-y-4">
+                <div class="flex justify-between items-center">
+                    <h3 class="font-heading font-extrabold text-sm text-slate-800 flex items-center gap-1.5">
+                        <i data-lucide="gift" class="w-4 h-4 text-blue-600"></i> Pledge Tiers / Investment Rewards
+                    </h3>
+                    <div class="flex gap-2">
+                        <button type="button" onclick="loadDefaultTiers()" class="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 font-bold rounded-xl text-xs flex items-center gap-1.5 transition-all">
+                            <i data-lucide="copy" class="w-3.5 h-3.5"></i> Load Default Tiers
+                        </button>
+                        <button type="button" onclick="addPledgeTierRow()" class="px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 font-bold rounded-xl text-xs flex items-center gap-1.5 transition-all">
+                            <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add Campaign Tier
+                        </button>
+                    </div>
+                </div>
+                <div id="tiers-list-container" class="space-y-4">
+                    <!-- Default Tier #1 -->
+                    <div class="tier-row p-4 border border-slate-200/80 rounded-xl bg-slate-50/30 space-y-3">
+                        <div class="flex justify-between items-center">
+                            <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Tier #1</span>
+                            <button type="button" onclick="removePledgeTierRow(this)" class="text-xs text-red-500 hover:text-red-700 font-bold">Remove</button>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Tier Title</label>
+                                <input type="text" name="tier_title[]" required placeholder="e.g. Bronze Supporter" class="block w-full px-3 py-2 border rounded-xl text-xs">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Min. Amount ($ USD)</label>
+                                <input type="number" name="tier_amount[]" required placeholder="50" class="block w-full px-3 py-2 border rounded-xl text-xs">
+                            </div>
+                            <div class="tier-equity-field hidden">
+                                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Equity Share (%)</label>
+                                <input type="number" name="tier_equity[]" placeholder="0.5" step="0.01" class="block w-full px-3 py-2 border rounded-xl text-xs">
+                            </div>
+                            <div class="tier-delivery-field">
+                                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Delivery Month</label>
+                                <input type="text" name="tier_delivery[]" placeholder="e.g. Oct 2026" class="block w-full px-3 py-2 border rounded-xl text-xs">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Perk / Reward Description</label>
+                            <input type="text" name="tier_desc[]" placeholder="Describe the reward or perk given to backers..." class="block w-full px-3 py-2 border rounded-xl text-xs">
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -470,15 +652,18 @@ require_once __DIR__ . '/includes/header.php';
                 document.getElementById('review-title').innerText = document.getElementById('title').value;
                 document.getElementById('review-sector-stage').innerText = 
                     document.getElementById('sector').value.toUpperCase() + ' / ' + document.getElementById('stage').value;
-                document.getElementById('review-capital').innerText = '$' + Number(document.getElementById('capitalRequired').value).toLocaleString();
+                
+                // Base TSH formatting for review step
+                const usdCapital = Number(document.getElementById('capitalRequired').value);
+                document.getElementById('review-capital').innerText = formatJSVal(usdCapital);
                 document.getElementById('review-roi').innerText = document.getElementById('expectedROI').value + '% expected ROI';
                 
                 const pricingType = document.querySelector('input[name="accessType"]:checked').value;
                 let pricingLabel = 'Free Access';
                 if (pricingType === 'paid') {
-                    pricingLabel = 'Decryption Lock: $' + document.getElementById('accessPrice').value;
+                    pricingLabel = 'Decryption Lock: ' + formatJSVal(Number(document.getElementById('accessPrice').value));
                 } else if (pricingType === 'tiered') {
-                    pricingLabel = 'Decryption Lock: $' + document.getElementById('accessPrice').value + ' | Attachments: $' + document.getElementById('attachmentPrice').value;
+                    pricingLabel = 'Decryption Lock: ' + formatJSVal(Number(document.getElementById('accessPrice').value)) + ' | Attachments: ' + formatJSVal(Number(document.getElementById('attachmentPrice').value));
                 }
                 document.getElementById('review-pricing').innerText = pricingLabel;
 
@@ -492,6 +677,131 @@ require_once __DIR__ . '/includes/header.php';
             // Trigger actual form submit
             document.getElementById('submit-concept-form').submit();
         }
+    }
+
+    function formatJSVal(usd) {
+        const tsh = usd * 2600;
+        return "Tsh. " + Number(tsh).toLocaleString() + "/= ($ " + Number(usd).toLocaleString() + ")";
+    }
+
+    function toggleCampaignModelFields(val) {
+        const eqContainer = document.getElementById('equity-offered-container');
+        const eqDetails = document.getElementById('equity-details-container');
+        const eqFields = document.querySelectorAll('.tier-equity-field');
+        const deliveryFields = document.querySelectorAll('.tier-delivery-field');
+
+        if (val === 'equity') {
+            eqContainer.classList.remove('hidden');
+            if (eqDetails) eqDetails.classList.remove('hidden');
+            eqFields.forEach(f => f.classList.remove('hidden'));
+            deliveryFields.forEach(f => f.classList.add('hidden'));
+        } else {
+            eqContainer.classList.add('hidden');
+            if (eqDetails) eqDetails.classList.add('hidden');
+            eqFields.forEach(f => f.classList.add('hidden'));
+            deliveryFields.forEach(f => f.classList.remove('hidden'));
+        }
+    }
+
+    function loadDefaultTiers() {
+        const container = document.getElementById('tiers-list-container');
+        container.innerHTML = ''; 
+        
+        const defaults = [
+            { title: 'Bronze', amount: 20000, desc: 'Thank-you certificate', equity: 0, delivery: 'Oct 2026' },
+            { title: 'Silver', amount: 10000, desc: 'Business plan preview', equity: 0, delivery: 'Nov 2026' }, // Wait, Silver is 100,000 TZS
+            { title: 'Gold', amount: 500000, desc: 'Full business proposal', equity: 0, delivery: 'Dec 2026' },
+            { title: 'Platinum', amount: 2000000, desc: 'Equity discussion invitation', equity: 0, delivery: 'Jan 2027' }
+        ];
+        // Fix silver amount to 100000
+        defaults[1].amount = 100000;
+
+        const campaignType = document.getElementById('campaignType').value;
+        const eqHidden = campaignType === 'equity' ? '' : 'hidden';
+        const delHidden = campaignType === 'equity' ? 'hidden' : '';
+
+        defaults.forEach((tier, index) => {
+            const div = document.createElement('div');
+            div.className = "tier-row p-4 border border-slate-200 rounded-xl bg-slate-50/30 space-y-3 animate-fade-in";
+            div.innerHTML = `
+                <div class="flex justify-between items-center">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Tier #${index + 1}</span>
+                    <button type="button" onclick="removePledgeTierRow(this)" class="text-xs text-red-500 hover:text-red-700 font-bold">Remove</button>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Tier Title</label>
+                        <input type="text" name="tier_title[]" required value="${tier.title}" class="block w-full px-3 py-2 border rounded-xl text-xs">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Min. Amount (TZS)</label>
+                        <input type="number" name="tier_amount[]" required value="${tier.amount}" class="block w-full px-3 py-2 border rounded-xl text-xs">
+                    </div>
+                    <div class="tier-equity-field ${eqHidden}">
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Equity Share (%)</label>
+                        <input type="number" name="tier_equity[]" value="${tier.equity}" step="0.01" class="block w-full px-3 py-2 border rounded-xl text-xs">
+                    </div>
+                    <div class="tier-delivery-field ${delHidden}">
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Delivery Month</label>
+                        <input type="text" name="tier_delivery[]" value="${tier.delivery}" class="block w-full px-3 py-2 border rounded-xl text-xs">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Perk / Reward Description</label>
+                    <input type="text" name="tier_desc[]" value="${tier.desc}" class="block w-full px-3 py-2 border rounded-xl text-xs">
+                </div>
+            `;
+            container.appendChild(div);
+        });
+        tierCount = 4;
+        lucide.createIcons();
+    }
+
+    let tierCount = 1;
+    function addPledgeTierRow() {
+        tierCount++;
+        const container = document.getElementById('tiers-list-container');
+        const campaignType = document.getElementById('campaignType').value;
+        const eqHidden = campaignType === 'equity' ? '' : 'hidden';
+        const delHidden = campaignType === 'equity' ? 'hidden' : '';
+
+        const div = document.createElement('div');
+        div.className = "tier-row p-4 border border-slate-200 rounded-xl bg-slate-50/30 space-y-3 animate-fade-in";
+        div.innerHTML = `
+            <div class="flex justify-between items-center">
+                <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Tier #${tierCount}</span>
+                <button type="button" onclick="removePledgeTierRow(this)" class="text-xs text-red-500 hover:text-red-700 font-bold">Remove</button>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Tier Title</label>
+                    <input type="text" name="tier_title[]" required placeholder="e.g. Silver Supporter" class="block w-full px-3 py-2 border rounded-xl text-xs">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Min. Amount ($ USD)</label>
+                    <input type="number" name="tier_amount[]" required placeholder="100" class="block w-full px-3 py-2 border rounded-xl text-xs">
+                </div>
+                <div class="tier-equity-field ${eqHidden}">
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Equity Share (%)</label>
+                    <input type="number" name="tier_equity[]" placeholder="1.0" step="0.01" class="block w-full px-3 py-2 border rounded-xl text-xs">
+                </div>
+                <div class="tier-delivery-field ${delHidden}">
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Delivery Month</label>
+                    <input type="text" name="tier_delivery[]" placeholder="e.g. Dec 2026" class="block w-full px-3 py-2 border rounded-xl text-xs">
+                </div>
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Perk / Reward Description</label>
+                <input type="text" name="tier_desc[]" placeholder="Describe the perk or reward..." class="block w-full px-3 py-2 border rounded-xl text-xs">
+            </div>
+        `;
+        container.appendChild(div);
+        lucide.createIcons();
+    }
+
+    function removePledgeTierRow(btn) {
+        const row = btn.closest('.tier-row');
+        if (row) row.remove();
     }
 
     function prevStep() {

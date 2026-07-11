@@ -10,16 +10,113 @@ if (!$loggedIn) {
     exit;
 }
 
-require_once __DIR__ . '/includes/header.php';
-
 $ideaId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 $idea = dbGetIdeaById($ideaId);
 
 if (!$idea) {
+    require_once __DIR__ . '/includes/header.php';
     echo "<main class='flex-grow max-w-7xl mx-auto px-4 py-16 text-center'><h2 class='text-2xl font-bold text-slate-800'>Idea not found</h2><a href='dashboard.php' class='mt-4 inline-block text-blue-600 font-bold hover:underline'>Back to Dashboard</a></main>";
     require_once __DIR__ . '/includes/footer.php';
     exit;
 }
+
+// ─── POST CAMPAIGN UPDATE HANDLER ────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'post_campaign_update') {
+    if ($role === 'entrepreneur' && $idea['entrepreneur_email'] === $userEmail) {
+        $updateTitle = trim($_POST['update_title'] ?? '');
+        $updateContent = trim($_POST['update_content'] ?? '');
+        if (!empty($updateTitle) && !empty($updateContent)) {
+            $db = getDB();
+            $db->prepare("
+                INSERT INTO campaign_updates (idea_id, title, content, created_at)
+                VALUES (?, ?, ?, NOW())
+            ")->execute([$ideaId, $updateTitle, $updateContent]);
+
+            // Notify backers
+            $pledges = dbGetCampaignPledges($ideaId);
+            $backerEmails = array_unique(array_column($pledges, 'investor_email'));
+            $notifStmt = $db->prepare("
+                INSERT INTO notifications (user_email, type, title, message, sender)
+                VALUES (?, 'info', 'Campaign Update Posted', ?, ?)
+            ");
+            foreach ($backerEmails as $bEmail) {
+                $notifStmt->execute([
+                    $bEmail,
+                    "Entrepreneur posted a new campaign update: \"$updateTitle\" for startup \"{$idea['title']}\".",
+                    $_SESSION['user_name'] ?? 'Entrepreneur'
+                ]);
+            }
+
+            header("Location: idea-detail.php?id=$ideaId&tab=3");
+            exit;
+        }
+    }
+}
+
+// ─── POST COMMENT HANDLER ────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'post_comment') {
+    $commentText = trim($_POST['comment_text'] ?? '');
+    if (!empty($commentText)) {
+        $db = getDB();
+        $db->prepare("
+            INSERT INTO campaign_comments (idea_id, user_email, user_name, text, created_at)
+            VALUES (?, ?, ?, ?, NOW())
+        ")->execute([$ideaId, $userEmail, $_SESSION['user_name'] ?? 'User', $commentText]);
+
+        if ($idea['entrepreneur_email'] !== $userEmail) {
+            $db->prepare("
+                INSERT INTO notifications (user_email, type, title, message, sender)
+                VALUES (?, 'info', 'New Comment on Campaign', ?, ?)
+            ")->execute([
+                $idea['entrepreneur_email'],
+                "Investor " . ($_SESSION['user_name'] ?? 'Investor') . " commented on your campaign \"" . $idea['title'] . "\".",
+                $_SESSION['user_name'] ?? 'Investor'
+            ]);
+        }
+
+        header("Location: idea-detail.php?id=$ideaId&tab=4");
+        exit;
+    }
+}
+
+// ─── POST RATING HANDLER ────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'post_rating') {
+    $ratingVal = (int)($_POST['rating'] ?? 0);
+    $reviewText = trim($_POST['review_text'] ?? '');
+    if ($ratingVal >= 1 && $ratingVal <= 5) {
+        $db = getDB();
+        $checkStmt = $db->prepare("SELECT id FROM campaign_ratings WHERE idea_id = ? AND investor_email = ? LIMIT 1");
+        $checkStmt->execute([$ideaId, $userEmail]);
+        $existingRating = $checkStmt->fetch();
+
+        if ($existingRating) {
+            $db->prepare("
+                UPDATE campaign_ratings 
+                SET rating = ?, review = ?, created_at = NOW() 
+                WHERE id = ?
+            ")->execute([$ratingVal, $reviewText, $existingRating['id']]);
+        } else {
+            $db->prepare("
+                INSERT INTO campaign_ratings (idea_id, investor_email, rating, review, created_at)
+                VALUES (?, ?, ?, ?, NOW())
+            ")->execute([$ideaId, $userEmail, $ratingVal, $reviewText]);
+
+            $db->prepare("
+                INSERT INTO notifications (user_email, type, title, message, sender)
+                VALUES (?, 'info', 'New Rating on Campaign', ?, ?)
+            ")->execute([
+                $idea['entrepreneur_email'],
+                "Investor " . ($_SESSION['user_name'] ?? 'Investor') . " rated your campaign with $ratingVal stars.",
+                $_SESSION['user_name'] ?? 'Investor'
+            ]);
+        }
+
+        header("Location: idea-detail.php?id=$ideaId&tab=4");
+        exit;
+    }
+}
+
+require_once __DIR__ . '/includes/header.php';
 
 $entrepreneur = dbGetUserByEmail($idea['entrepreneur_email']);
 
@@ -28,6 +125,9 @@ $detailTab = isset($_GET['tab']) ? (int)$_GET['tab'] : 0;
 // Check unlock states
 $hasPaidAccess      = ($role === 'entrepreneur' || $idea['access_type'] === 'free');
 $hasPaidAttachments = ($role === 'entrepreneur' || empty($idea['attachment_price']) || (float)$idea['attachment_price'] === 0.0);
+
+// Check accredited investor status
+$isAccredited = ($role === 'investor') ? (dbIsInvestorAccredited($userEmail, $ideaId) ? 1 : 0) : 1;
 
 // Track whether investor has already expressed interest
 $alreadyInterested = false;
@@ -125,8 +225,124 @@ $watermarkClass = ($role === 'investor') ? 'watermarked-container' : '';
                             <i data-lucide="heart" class="w-4 h-4"></i> Express Interest
                         </button>
                     <?php endif; ?>
+                    <!-- Follow Campaign Button -->
+                    <button onclick="toggleFollow()" id="follow-btn" class="px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 <?= $isFollowing ? 'bg-indigo-600 hover:bg-indigo-700 text-white' : 'border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 bg-white' ?>">
+                        <i data-lucide="<?= $isFollowing ? 'heart-off' : 'heart' ?>" class="w-4 h-4"></i>
+                        <span id="follow-btn-text"><?= $isFollowing ? 'Unfollow Venture' : 'Follow Venture' ?></span>
+                        <span id="follow-count-badge" class="ml-1 px-1.5 py-0.5 bg-indigo-500 text-white rounded text-[10px]"><?= $followersCount ?></span>
+                    </button>
                 </div>
             <?php endif; ?>
+        </div>
+    </div>
+
+    <?php
+    // Crowdfunding calculations
+    $goalAmount = (float)($idea['funding_goal'] ?: $idea['capital_required']);
+    $raisedAmount = dbGetCampaignRaisedAmount($ideaId);
+    $percentageRaised = $goalAmount > 0 ? min(100, round(($raisedAmount / $goalAmount) * 100)) : 0;
+    $pledges = dbGetCampaignPledges($ideaId);
+    $backersCount = count($pledges);
+
+    // Deadline calculations
+    $daysLeft = 30; // default fallback
+    if (!empty($idea['funding_deadline'])) {
+        $deadlineDate = new DateTime($idea['funding_deadline']);
+        $nowDate = new DateTime();
+        $interval = $nowDate->diff($deadlineDate);
+        $daysLeft = $deadlineDate > $nowDate ? $interval->days : 0;
+    }
+
+    $updates = dbGetCampaignUpdates($ideaId);
+    $updateCount = count($updates);
+
+    $commentsList = dbGetCampaignComments($ideaId);
+    $commentCount = count($commentsList);
+
+    $ratingsList = dbGetCampaignRatings($ideaId);
+    $ratingCount = count($ratingsList);
+    $avgRating   = dbGetIdeaAvgRating($ideaId);
+
+    $followersCount = dbGetFollowersCount($ideaId);
+    $isFollowing = $loggedIn ? dbIsFollowing($userEmail, $ideaId) : false;
+
+    $sectorImages = [
+        'technology' => 'assets/feature_slide-1.jpg',
+        'healthcare' => 'assets/feature_slide-2.jpg',
+        'agriculture' => 'assets/feature_slide-3.jpg',
+        'education' => 'assets/feature_slide-4.jpg',
+        'ecommerce' => 'assets/feature_slide-5.jpg',
+        'fintech' => 'assets/feature_slide-6.jpg',
+        'manufacturing' => 'assets/core1.jpg'
+    ];
+    $cardImage = $sectorImages[strtolower($idea['sector'])] ?? 'assets/core2.jpg';
+    ?>
+
+    <!-- Beautiful Cover Card Banner -->
+    <div class="w-full h-64 rounded-3xl overflow-hidden mb-8 relative border border-slate-200 shadow-md">
+        <img src="<?= $cardImage ?>" alt="Venture Cover Banner" class="w-full h-full object-cover">
+        <div class="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-900/20 to-transparent"></div>
+        <div class="absolute bottom-6 left-6 right-6 text-white flex flex-col md:flex-row justify-between items-start md:items-end gap-4 z-10">
+            <div class="text-left">
+                <span class="px-2.5 py-0.5 text-[9px] font-black text-white bg-blue-600 rounded-md uppercase tracking-wider mb-2 inline-block">
+                    <?= $idea['campaign_type'] === 'equity' ? 'Equity Funding' : 'Rewards Crowdfunding' ?>
+                </span>
+                <h1 class="text-2xl md:text-3xl font-heading font-black tracking-tight text-white"><?= e($idea['title']) ?></h1>
+                <p class="text-xs text-slate-300 font-semibold mt-1 flex items-center gap-1.5">
+                    <i data-lucide="map-pin" class="w-3.5 h-3.5 text-indigo-400"></i>
+                    <?= e($idea['covered_area'] ?: 'Tanzania') ?> Region Coverage &bull; Stage: <?= e($idea['stage']) ?>
+                </p>
+            </div>
+            
+            <div class="flex items-center gap-2.5 bg-black/40 backdrop-blur-md px-3.5 py-2 rounded-xl border border-white/10">
+                <div class="flex text-amber-400">
+                    <?php for ($star = 1; $star <= 5; $star++): ?>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 <?= $star <= round($avgRating) ? 'fill-amber-400 text-amber-400' : 'text-slate-500' ?>" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                    <?php endfor; ?>
+                </div>
+                <span class="text-sm font-heading font-black text-white"><?= number_format($avgRating, 1) ?></span>
+                <span class="text-xs text-slate-400 font-semibold">(<?= $ratingCount ?>)</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Crowdfunding Dashboard Header -->
+    <div class="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm mb-8 animate-fade-in">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 text-center md:text-left divide-y md:divide-y-0 md:divide-x divide-slate-100">
+            <!-- Raised -->
+            <div class="pb-4 md:pb-0">
+                <span class="block text-xs font-bold text-slate-400 uppercase tracking-wider">Fund Raised</span>
+                <span class="text-2xl font-heading font-black text-emerald-600 mt-1.5 inline-block"><?= formatCurrency($raisedAmount) ?></span>
+                <span class="block text-[11px] text-slate-400 font-semibold mt-1">pledged of <?= formatCurrency($goalAmount) ?> goal</span>
+            </div>
+            <!-- Backers -->
+            <div class="pt-4 md:pt-0 md:pl-6">
+                <span class="block text-xs font-bold text-slate-400 uppercase tracking-wider">Backers</span>
+                <span class="text-2xl font-heading font-black text-slate-800 mt-1.5 inline-block"><?= $backersCount ?></span>
+                <span class="block text-[11px] text-slate-400 font-semibold mt-1">supportive backers active</span>
+            </div>
+            <!-- Days Left -->
+            <div class="pt-4 md:pt-0 md:pl-6">
+                <span class="block text-xs font-bold text-slate-400 uppercase tracking-wider">Time Remaining</span>
+                <span class="text-2xl font-heading font-black text-slate-800 mt-1.5 inline-block"><?= $daysLeft ?></span>
+                <span class="block text-[11px] text-slate-400 font-semibold mt-1">days left to fund campaign</span>
+            </div>
+            <!-- Progress bar & Type badge -->
+            <div class="pt-4 md:pt-0 md:pl-6 flex flex-col justify-center">
+                <div class="flex justify-between items-center text-xs font-bold mb-1.5 text-slate-500">
+                    <span>Funding Goal Met</span>
+                    <span class="text-blue-600"><?= $percentageRaised ?>%</span>
+                </div>
+                <div class="w-full h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200/50">
+                    <div class="h-full bg-gradient-to-r from-blue-500 to-emerald-500 rounded-full transition-all duration-500" style="width: <?= $percentageRaised ?>%"></div>
+                </div>
+                <div class="flex justify-between items-center mt-2.5">
+                    <span class="px-2 py-0.5 text-[9px] font-black uppercase text-blue-600 bg-blue-50 border border-blue-100 rounded-md">
+                        <?= $idea['campaign_type'] === 'equity' ? 'Equity Investment' : 'Rewards Crowdfunding' ?>
+                    </span>
+                    <span class="text-[10px] text-slate-400 font-bold uppercase truncate max-w-[120px]"><?= e($idea['covered_area'] ?: 'Tanzania') ?> Only</span>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -137,10 +353,12 @@ $watermarkClass = ($role === 'investor') ? 'watermarked-container' : '';
         <div class="lg:col-span-2 space-y-6">
 
             <!-- Tabs -->
-            <div class="bg-white rounded-xl border border-slate-200/80 p-1.5 flex gap-2 shadow-sm">
-                <a href="?id=<?= $ideaId ?>&tab=0" class="flex-1 py-2 text-center text-xs font-bold rounded-lg transition-all <?= $detailTab === 0 ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800' ?>">Concept Overview</a>
-                <a href="?id=<?= $ideaId ?>&tab=1" class="flex-1 py-2 text-center text-xs font-bold rounded-lg transition-all <?= $detailTab === 1 ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800' ?>">Financial Details</a>
-                <a href="?id=<?= $ideaId ?>&tab=2" class="flex-1 py-2 text-center text-xs font-bold rounded-lg transition-all <?= $detailTab === 2 ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800' ?>">AI Evaluation Breakdown</a>
+            <div class="bg-white rounded-xl border border-slate-200/80 p-1.5 flex gap-2 shadow-sm overflow-x-auto">
+                <a href="?id=<?= $ideaId ?>&tab=0" class="flex-grow py-2 text-center text-xs font-bold rounded-lg transition-all whitespace-nowrap <?= $detailTab === 0 ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800' ?>">Concept Overview</a>
+                <a href="?id=<?= $ideaId ?>&tab=1" class="flex-grow py-2 text-center text-xs font-bold rounded-lg transition-all whitespace-nowrap <?= $detailTab === 1 ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800' ?>">Financial Details</a>
+                <a href="?id=<?= $ideaId ?>&tab=2" class="flex-grow py-2 text-center text-xs font-bold rounded-lg transition-all whitespace-nowrap <?= $detailTab === 2 ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800' ?>">AI Evaluation</a>
+                <a href="?id=<?= $ideaId ?>&tab=3" class="flex-grow py-2 text-center text-xs font-bold rounded-lg transition-all whitespace-nowrap <?= $detailTab === 3 ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800' ?>">Campaign Updates (<?= $updateCount ?>)</a>
+                <a href="?id=<?= $ideaId ?>&tab=4" class="flex-grow py-2 text-center text-xs font-bold rounded-lg transition-all whitespace-nowrap <?= $detailTab === 4 ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800' ?>">Comments & Ratings (<?= $commentCount ?>)</a>
             </div>
 
             <!-- TAB 0: CONCEPT OVERVIEW -->
@@ -158,7 +376,7 @@ $watermarkClass = ($role === 'investor') ? 'watermarked-container' : '';
                         <h3 class="font-heading font-extrabold text-xl text-slate-800">Premium Proposal Locked</h3>
                         <p class="text-sm text-slate-500 font-medium max-w-sm mt-1.5 leading-relaxed">Unlock complete access to detailed business plans, structural problem statements, and comprehensive technical solutions.</p>
                         <div class="flex items-baseline gap-1 mt-6">
-                            <span class="text-3xl font-heading font-black text-blue-600">$<?= $idea['access_price'] ?></span>
+                            <span class="text-3xl font-heading font-black text-blue-600"><?= formatCurrency($idea['access_price']) ?></span>
                             <span class="text-xs text-slate-400 font-bold uppercase tracking-wider">one-time unlock</span>
                         </div>
                         <button onclick="openPaymentModal('access', <?= $idea['access_price'] ?>)" class="mt-6 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm shadow-md shadow-blue-500/15 flex items-center gap-2 transition-all">
@@ -198,7 +416,7 @@ $watermarkClass = ($role === 'investor') ? 'watermarked-container' : '';
                                 <i data-lucide="lock" class="w-8 h-8 text-slate-400 mb-2"></i>
                                 <p class="text-xs text-slate-500 font-bold uppercase tracking-wider">Document download tier locked</p>
                                 <button onclick="openPaymentModal('attachments', <?= $idea['attachment_price'] ?>)" class="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow-sm flex items-center gap-1.5 transition-all">
-                                    <i data-lucide="unlock" class="w-3.5 h-3.5"></i> Unlock Files ($<?= $idea['attachment_price'] ?>)
+                                    <i data-lucide="unlock" class="w-3.5 h-3.5"></i> Unlock Files (<?= formatCurrency($idea['attachment_price']) ?>)
                                 </button>
                             </div>
                         <?php else: ?>
@@ -270,7 +488,7 @@ $watermarkClass = ($role === 'investor') ? 'watermarked-container' : '';
                     <div class="grid grid-cols-2 gap-6">
                         <div class="pb-4 border-b border-slate-100">
                             <span class="block text-xs font-semibold text-slate-400 uppercase tracking-wider">Required Capital</span>
-                            <span class="text-2xl font-heading font-black text-slate-800 mt-1 inline-block">$<?= number_format($idea['capital_required']) ?></span>
+                            <span class="text-2xl font-heading font-black text-slate-800 mt-1 inline-block"><?= formatCurrency($idea['capital_required']) ?></span>
                         </div>
                         <div class="pb-4 border-b border-slate-100">
                             <span class="block text-xs font-semibold text-slate-400 uppercase tracking-wider">Expected Venture ROI</span>
@@ -286,6 +504,44 @@ $watermarkClass = ($role === 'investor') ? 'watermarked-container' : '';
                         </div>
                     </div>
                 </div>
+
+                <?php if ($idea['campaign_type'] === 'equity'): ?>
+                    <div class="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm">
+                        <h3 class="font-heading font-extrabold text-base text-slate-800 mb-4 flex items-center gap-2">
+                            <i data-lucide="award" class="w-5 h-5 text-blue-600"></i> Equity Investment Terms
+                        </h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs font-semibold text-slate-600">
+                            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                <span class="block text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Company Valuation</span>
+                                <span class="text-xs font-heading font-black text-slate-800"><?= formatCurrency($idea['company_valuation'] ?: ($idea['capital_required'] * 10)) ?></span>
+                            </div>
+                            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                <span class="block text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Equity Offered</span>
+                                <span class="text-xs font-heading font-black text-slate-800"><?= $idea['equity_offered'] ?>%</span>
+                            </div>
+                            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                <span class="block text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Funding Round</span>
+                                <span class="text-xs font-heading font-black text-blue-600 uppercase"><?= e($idea['funding_round'] ?: 'Seed') ?></span>
+                            </div>
+                            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                <span class="block text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Minimum Investment</span>
+                                <span class="text-xs font-heading font-black text-slate-800"><?= formatCurrency($idea['min_investment'] ?: 1000000) ?></span>
+                            </div>
+                            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                <span class="block text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Maximum Investment</span>
+                                <span class="text-xs font-heading font-black text-slate-800"><?= formatCurrency($idea['max_investment'] ?: 50000000) ?></span>
+                            </div>
+                            <div class="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                <span class="block text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Expected ROI</span>
+                                <span class="text-xs font-heading font-black text-emerald-600"><?= $idea['expected_roi'] ?>%</span>
+                            </div>
+                            <div class="sm:col-span-2 md:col-span-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                <span class="block text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Exit Strategy</span>
+                                <p class="text-slate-700 font-medium leading-relaxed"><?= e($idea['exit_strategy'] ?: 'To be negotiated with lead investors during seed round.') ?></p>
+                            </div>
+                        </div>
+                    </div>
+                <?php endif; ?>
 
                 <div class="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm">
                     <h3 class="font-heading font-extrabold text-base text-slate-800 mb-4">Projected ROI Growth</h3>
@@ -384,6 +640,26 @@ $watermarkClass = ($role === 'investor') ? 'watermarked-container' : '';
                     </div>
                 </div>
 
+                <!-- AI Copilot Pitch Audit Insights -->
+                <div class="bg-white p-6 rounded-2xl border border-blue-200/80 shadow-sm relative overflow-hidden animate-fade-in">
+                    <div class="absolute top-0 right-0 w-24 h-24 bg-blue-500/5 rounded-full -mr-8 -mt-8"></div>
+                    <h3 class="font-heading font-extrabold text-base text-slate-800 mb-4 flex items-center gap-2">
+                        <i data-lucide="sparkles" class="w-5 h-5 text-blue-600"></i> AI Copilot Pitch Insights
+                    </h3>
+                    
+                    <div class="space-y-4">
+                        <div class="p-4 bg-blue-50/40 rounded-xl border border-blue-100 text-xs font-semibold text-slate-700">
+                            <span class="block text-[10px] text-blue-600 font-extrabold uppercase tracking-wider mb-1.5">Executive Venture Summary</span>
+                            <p class="leading-relaxed font-medium"><?= e($idea['ai_summary'] ?: 'AI analysis in progress. Our models are currently auditing the pitch deck parameters...') ?></p>
+                        </div>
+
+                        <div class="p-4 bg-slate-50 rounded-xl border border-slate-100 text-xs font-semibold text-slate-700">
+                            <span class="block text-[10px] text-slate-400 font-extrabold uppercase tracking-wider mb-1.5">Venture Risk Factors & Mitigation</span>
+                            <p class="leading-relaxed font-medium whitespace-pre-line"><?= e($idea['ai_risk_analysis'] ?: "1. Market Access Risk: Regulatory dependencies in region.\n2. Team Execution risk: Local developer staffing capabilities.") ?></p>
+                        </div>
+                    </div>
+                </div>
+
                 <script>
                 document.addEventListener('DOMContentLoaded', () => {
                     const ctxRadar = document.getElementById('scoreRadarChart');
@@ -402,10 +678,202 @@ $watermarkClass = ($role === 'investor') ? 'watermarked-container' : '';
                 </script>
             <?php endif; ?>
 
+            <!-- TAB 3: CAMPAIGN UPDATES -->
+            <?php if ($detailTab === 3): ?>
+                <?php if ($role === 'entrepreneur' && $idea['entrepreneur_email'] === $userEmail): ?>
+                    <!-- Post Update Form (only for Entrepreneur) -->
+                    <div class="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm space-y-4 animate-fade-in">
+                        <h3 class="font-heading font-extrabold text-base text-slate-800 flex items-center gap-1.5">
+                            <i data-lucide="edit-3" class="w-5 h-5 text-blue-600"></i> Write a Campaign Update
+                        </h3>
+                        <form method="POST" class="space-y-4">
+                            <input type="hidden" name="action" value="post_campaign_update">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Update Title</label>
+                                <input type="text" name="update_title" required placeholder="e.g. Prototype Testing Completed in Dodoma" class="block w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-slate-50/50">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Update Message Details</label>
+                                <textarea name="update_content" required rows="5" placeholder="Share your milestones, business updates, or progress with your backers..." class="block w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-slate-50/50"></textarea>
+                            </div>
+                            <button type="submit" class="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow-md transition-all flex items-center gap-1.5">
+                                <i data-lucide="send" class="w-4 h-4"></i> Post Update & Broadcast
+                            </button>
+                        </form>
+                    </div>
+                <?php endif; ?>
+
+                <div class="space-y-4">
+                    <?php if (empty($updates)): ?>
+                        <div class="bg-white p-12 rounded-2xl border border-slate-200/60 shadow-sm text-center text-slate-400 flex flex-col items-center">
+                            <i data-lucide="megaphone" class="w-12 h-12 text-slate-300 mb-2"></i>
+                            <h4 class="font-heading font-semibold text-slate-500">No Campaign Updates</h4>
+                            <p class="text-xs text-slate-400 mt-1 max-w-xs">The entrepreneur hasn't posted any updates yet. Backers will be notified when milestones are published.</p>
+                        </div>
+                    <?php else: foreach ($updates as $up): ?>
+                        <div class="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm space-y-3 animate-fade-in text-left">
+                            <div class="flex justify-between items-center border-b border-slate-100 pb-2">
+                                <h4 class="font-heading font-extrabold text-base text-slate-800"><?= e($up['title']) ?></h4>
+                                <span class="text-xs text-slate-400 font-semibold"><?= date('F j, Y, g:i a', strtotime($up['created_at'])) ?></span>
+                            </div>
+                            <p class="text-sm text-slate-600 leading-relaxed whitespace-pre-line font-medium"><?= e($up['content']) ?></p>
+                        </div>
+                    <?php endforeach; endif; ?>
+                </div>
+            <?php endif; ?>
+
+            <!-- TAB 4: COMMENTS & RATINGS -->
+            <?php if ($detailTab === 4): ?>
+                <div class="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm space-y-6 text-left">
+                    <!-- Rating and Score Summary -->
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 bg-slate-50 border border-slate-200/50 rounded-2xl gap-4">
+                        <div>
+                            <h3 class="font-heading font-extrabold text-base text-slate-800 flex items-center gap-1.5">
+                                <i data-lucide="star" class="w-5 h-5 text-amber-500 fill-amber-500"></i> Venture Rating Summary
+                            </h3>
+                            <p class="text-xs text-slate-400 font-semibold mt-0.5">Average rating based on investor feedback audits</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-3xl font-heading font-black text-slate-800"><?= number_format($avgRating, 1) ?></span>
+                            <div class="flex flex-col">
+                                <div class="flex text-amber-500">
+                                    <?php for ($star = 1; $star <= 5; $star++): ?>
+                                        <i data-lucide="star" class="w-3.5 h-3.5 <?= $star <= round($avgRating) ? 'fill-amber-500 text-amber-500' : 'text-slate-200' ?>"></i>
+                                    <?php endfor; ?>
+                                </div>
+                                <span class="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5"><?= $ratingCount ?> evaluations</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Leave Rating Form (Only for logged in Investors) -->
+                    <?php if ($role === 'investor'): ?>
+                        <div class="p-4 border border-blue-100 bg-blue-50/20 rounded-2xl text-left">
+                            <h4 class="font-heading font-extrabold text-xs text-slate-800 uppercase tracking-wider mb-3">Audit & Rate Venture</h4>
+                            <form method="POST" class="space-y-4">
+                                <input type="hidden" name="action" value="post_rating">
+                                <div class="flex items-center gap-4">
+                                    <span class="text-xs font-bold text-slate-500">Your Star Rating:</span>
+                                    <div class="flex gap-1 star-rating-inputs">
+                                        <?php for ($i = 1; $i <= 5; $i++): ?>
+                                            <label class="cursor-pointer group">
+                                                <input type="radio" name="rating" value="<?= $i ?>" required class="sr-only star-radio">
+                                                <i data-lucide="star" class="w-6 h-6 text-slate-300 star-icon transition-colors"></i>
+                                            </label>
+                                        <?php endfor; ?>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Review Remarks / Audited Risk Opinion</label>
+                                    <textarea name="review_text" rows="2" required placeholder="Provide analytical feedback about this proposal..." class="block w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500/20 focus:outline-none"></textarea>
+                                </div>
+                                <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs shadow-md transition-all">Submit Rating</button>
+                            </form>
+                        </div>
+                    <?php endif; ?>
+
+                    <!-- Comments and Discussion Section -->
+                    <div class="space-y-4 pt-4 border-t">
+                        <h3 class="font-heading font-extrabold text-base text-slate-800 flex items-center gap-2">
+                            <i data-lucide="message-square" class="w-5 h-5 text-blue-600"></i> Discussion & Questions (<?= $commentCount ?>)
+                        </h3>
+
+                        <!-- Leave Comment Form -->
+                        <form method="POST" class="flex gap-3 items-start">
+                            <input type="hidden" name="action" value="post_comment">
+                            <div class="w-8 h-8 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center shadow-md">
+                                <?= strtoupper(substr($_SESSION['user_name'] ?? 'U', 0, 1)) ?>
+                            </div>
+                            <div class="flex-grow space-y-2">
+                                <textarea name="comment_text" rows="2" required placeholder="Ask a question or comment on this campaign..." class="block w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500/20 focus:outline-none text-slate-800"></textarea>
+                                <button type="submit" class="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-lg text-xs transition-all">Post Comment</button>
+                            </div>
+                        </form>
+
+                        <!-- Comments List -->
+                        <div class="space-y-4 mt-6">
+                            <?php if (empty($commentsList)): ?>
+                                <div class="py-8 text-center text-slate-400 text-xs font-semibold">No comments posted yet. Start the conversation!</div>
+                            <?php else: foreach ($commentsList as $c): ?>
+                                <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 text-left flex gap-3">
+                                    <div class="w-7 h-7 rounded-full bg-slate-200 text-slate-600 font-bold text-xs flex items-center justify-center border text-sm">
+                                        <?= strtoupper(substr($c['user_name'], 0, 1)) ?>
+                                    </div>
+                                    <div class="flex-grow">
+                                        <div class="flex justify-between items-center">
+                                            <span class="text-xs font-bold text-slate-800"><?= e($c['user_name']) ?></span>
+                                            <span class="text-[9px] text-slate-400 font-semibold"><?= timeAgo($c['created_at']) ?></span>
+                                        </div>
+                                        <p class="text-xs text-slate-600 font-medium mt-1 leading-relaxed"><?= e($c['text']) ?></p>
+                                    </div>
+                                </div>
+                            <?php endforeach; endif; ?>
+                        </div>
+                    </div>
+                </div>
+            <?php endif; ?>
+
         </div>
 
         <!-- Right Sidebar -->
         <div class="space-y-6">
+            <!-- CROWDFUNDING PLEDGE / INVESTMENT TIERS -->
+            <div class="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm space-y-4">
+                <h3 class="font-heading font-extrabold text-base text-slate-800 flex items-center gap-1.5">
+                    <i data-lucide="rocket" class="w-5 h-5 text-blue-600"></i> Support Campaign
+                </h3>
+                <p class="text-xs text-slate-400 font-semibold leading-relaxed">Choose an option below to back this project and unlock full files.</p>
+                
+                <div class="space-y-4">
+                    <?php
+                    $campaignTiers = dbGetPledgeTiers($ideaId);
+                    if (empty($campaignTiers)):
+                    ?>
+                        <!-- Default backer option -->
+                        <div class="p-4 border border-slate-200/60 rounded-xl bg-slate-50/30 space-y-3">
+                            <div>
+                                <h4 class="font-bold text-xs text-slate-800">General Supporter</h4>
+                                <p class="text-[10px] text-slate-400 font-semibold mt-0.5">Flexible Campaign Backing</p>
+                            </div>
+                            <p class="text-xs text-slate-500 font-medium leading-relaxed font-medium">Pledge general support to back this entrepreneur's vision.</p>
+                            <div class="flex justify-between items-baseline pt-1">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Min. Pledge</span>
+                                <span class="text-sm font-heading font-black text-blue-600"><?= formatCurrency(10) ?></span>
+                            </div>
+                            <?php if ($role === 'investor'): ?>
+                                <button onclick="handleTierBacking(null, 10)" class="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow-sm flex items-center justify-center gap-1.5 transition-all">
+                                    <i data-lucide="zap" class="w-3.5 h-3.5"></i> Back this Campaign
+                                </button>
+                            <?php endif; ?>
+                        </div>
+                    <?php else: foreach ($campaignTiers as $tier): ?>
+                        <div class="p-4 border border-slate-200/80 rounded-xl bg-white hover:border-blue-300 transition-all space-y-3 shadow-sm relative group text-left">
+                            <div class="flex justify-between items-start">
+                                <h4 class="font-bold text-xs text-slate-800 group-hover:text-blue-600 transition-colors"><?= e($tier['title']) ?></h4>
+                                <?php if ((float)$tier['equity_pct'] > 0): ?>
+                                    <span class="px-1.5 py-0.5 text-[9px] font-black bg-emerald-50 text-emerald-600 border border-emerald-100 rounded"><?= $tier['equity_pct'] ?>% Equity</span>
+                                <?php endif; ?>
+                            </div>
+                            <p class="text-xs text-slate-500 font-medium leading-relaxed"><?= e($tier['description']) ?></p>
+                            <div class="flex justify-between items-baseline pt-1">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Min. Pledge</span>
+                                <span class="text-sm font-heading font-black text-blue-600"><?= formatCurrency($tier['amount']) ?></span>
+                            </div>
+                            <?php if (!empty($tier['delivery_date'])): ?>
+                                <div class="text-[9px] text-slate-400 font-bold uppercase flex items-center gap-1">
+                                    <i data-lucide="calendar" class="w-3 h-3"></i> Delivery: <?= e($tier['delivery_date']) ?>
+                                </div>
+                            <?php endif; ?>
+                            <?php if ($role === 'investor'): ?>
+                                <button onclick="handleTierBacking(<?= $tier['id'] ?>, <?= $tier['amount'] ?>)" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow-sm flex items-center justify-center gap-1.5 transition-all">
+                                    <i data-lucide="zap" class="w-3.5 h-3.5"></i> <?= $idea['campaign_type'] === 'equity' ? 'Invest in this Tier' : 'Back this Tier' ?>
+                                </button>
+                            <?php endif; ?>
+                        </div>
+                    <?php endforeach; endif; ?>
+                </div>
+            </div>
+
             <div class="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm">
                 <h3 class="font-heading font-extrabold text-base text-slate-800 mb-4">Metadata Summary</h3>
                 <div class="space-y-4">
@@ -472,12 +940,12 @@ $watermarkClass = ($role === 'investor') ? 'watermarked-container' : '';
                     <div class="space-y-3.5 text-xs font-semibold text-slate-500">
                         <div class="flex justify-between items-center py-1">
                             <span>Concept access:</span>
-                            <span class="px-2 py-0.5 rounded <?= $hasPaidAccess ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-600' ?>"><?= $hasPaidAccess ? 'Unlocked' : '$' . $idea['access_price'] ?></span>
+                            <span class="px-2 py-0.5 rounded <?= $hasPaidAccess ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-600' ?>"><?= $hasPaidAccess ? 'Unlocked' : formatCurrency($idea['access_price']) ?></span>
                         </div>
                         <?php if ((float)$idea['attachment_price'] > 0): ?>
                         <div class="flex justify-between items-center py-1 border-t border-slate-100">
                             <span>Attached files:</span>
-                            <span class="px-2 py-0.5 rounded <?= $hasPaidAttachments ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-600' ?>"><?= $hasPaidAttachments ? 'Unlocked' : '$' . $idea['attachment_price'] ?></span>
+                            <span class="px-2 py-0.5 rounded <?= $hasPaidAttachments ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-600' ?>"><?= $hasPaidAttachments ? 'Unlocked' : formatCurrency($idea['attachment_price']) ?></span>
                         </div>
                         <?php endif; ?>
                     </div>
@@ -590,6 +1058,43 @@ $watermarkClass = ($role === 'investor') ? 'watermarked-container' : '';
     </div>
 </div>
 
+<!-- ═══════ INVESTOR COMPLIANCE MODAL ═══════ -->
+<div id="compliance-modal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-fade-in flex flex-col overflow-hidden text-slate-800">
+        <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+            <h3 class="font-heading font-bold text-base text-slate-800 flex items-center gap-1.5">
+                <i data-lucide="shield-alert" class="w-5 h-5 text-blue-600"></i> Investor Vetting & Compliance
+            </h3>
+            <button onclick="closeComplianceModal()" class="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-xl transition-all">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+        </div>
+        <form id="compliance-form" onsubmit="submitCompliance(event)" class="p-5 space-y-4">
+            <p class="text-xs text-slate-500 font-medium">To participate in equity crowdfunding under Tanzanian investor guidelines, please verify your accredited status and review risk terms.</p>
+            
+            <div class="space-y-3 pt-2">
+                <label class="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 cursor-pointer bg-slate-50/50 hover:bg-slate-50 text-xs font-semibold text-slate-600">
+                    <input type="checkbox" required class="mt-0.5 accent-blue-600">
+                    <span>I verify that I understand early-stage startup investments in Tanzania are risky and may result in partial or total loss of capital.</span>
+                </label>
+                <label class="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 cursor-pointer bg-slate-50/50 hover:bg-slate-50 text-xs font-semibold text-slate-600">
+                    <input type="checkbox" required class="mt-0.5 accent-blue-600">
+                    <span>I agree to the equity investment conditions, offering terms, and platform compliance guidelines.</span>
+                </label>
+            </div>
+
+            <div>
+                <label for="comp-signature" class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Electronic Signature (Type Full Name)</label>
+                <input type="text" id="comp-signature" required placeholder="e.g. <?= e($_SESSION['user_name'] ?? '') ?>" class="block w-full px-4 py-2.5 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-slate-50/20">
+            </div>
+
+            <button type="submit" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm shadow-md transition-all flex items-center justify-center gap-1.5">
+                <i data-lucide="signature" class="w-4 h-4"></i> Sign & Acknowledge Terms
+            </button>
+        </form>
+    </div>
+</div>
+
 <!-- Snackbar -->
 <div id="snackbar-popup" class="fixed bottom-6 left-6 z-50 bg-slate-800 text-white px-5 py-3 rounded-xl shadow-xl flex items-center gap-2 text-xs font-semibold hidden animate-fade-in">
     <i data-lucide="check-circle" class="w-4 h-4 text-emerald-400"></i>
@@ -597,9 +1102,64 @@ $watermarkClass = ($role === 'investor') ? 'watermarked-container' : '';
 </div>
 
 <script>
+    let isAccredited = <?= $isAccredited ?>;
+    let complianceTargetTierId = null;
+    let complianceTargetAmount = 0;
+
+    function openComplianceModal(tierId, amount) {
+        complianceTargetTierId = tierId;
+        complianceTargetAmount = amount;
+        const modal = document.getElementById('compliance-modal');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        lucide.createIcons();
+    }
+
+    function closeComplianceModal() {
+        const modal = document.getElementById('compliance-modal');
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+
+    function submitCompliance(e) {
+        e.preventDefault();
+        const signature = document.getElementById('comp-signature').value.trim();
+        if (!signature) return;
+
+        const fd = new FormData();
+        fd.append('idea_id', <?= $ideaId ?>);
+        fd.append('signature', signature);
+
+        fetch('api/compliance-handler.php', { method: 'POST', body: fd })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    isAccredited = 1;
+                    closeComplianceModal();
+                    showSnackbar('Accredited investor compliance signed successfully!');
+                    openPaymentModal('pledge', complianceTargetAmount, complianceTargetTierId);
+                } else {
+                    alert('Could not sign compliance: ' + data.message);
+                }
+            });
+    }
+
+    function handleTierBacking(tierId, amount) {
+        <?php if ($idea['campaign_type'] === 'equity'): ?>
+            if (isAccredited === 0) {
+                openComplianceModal(tierId, amount);
+            } else {
+                openPaymentModal('pledge', amount, tierId);
+            }
+        <?php else: ?>
+            openPaymentModal('pledge', amount, tierId);
+        <?php endif; ?>
+    }
+
     let activePaymentType = 'access';
     let activePaymentAmount = 0;
     let selectedMethod = 'card';
+    let selectedTierId = null;
 
     const allPayBtns = ['pay-card','pay-mpesa','pay-mixx','pay-airtel','pay-halopesa'];
     const mobileMoneyMethods = {
@@ -639,13 +1199,14 @@ $watermarkClass = ($role === 'investor') ? 'watermarked-container' : '';
         }
     }
 
-    function openPaymentModal(type, cost) {
+    function openPaymentModal(type, cost, tierId = null) {
         const errBlock = document.getElementById('payment-error-block');
         if (errBlock) errBlock.classList.add('hidden');
 
         activePaymentType = type;
         activePaymentAmount = cost;
-        document.getElementById('payment-amount-label').innerText = '$' + cost;
+        selectedTierId = tierId;
+        document.getElementById('payment-amount-label').innerText = formatJSVal(cost);
         const modal = document.getElementById('payment-modal');
         modal.classList.remove('hidden');
         modal.classList.add('flex');
@@ -698,6 +1259,9 @@ $watermarkClass = ($role === 'investor') ? 'watermarked-container' : '';
         formData.append('amount', activePaymentAmount);
         formData.append('purchase_type', activePaymentType);
         formData.append('payment_method', selectedMethod);
+        if (selectedTierId) {
+            formData.append('tier_id', selectedTierId);
+        }
 
         fetch('api/payment-handler.php', { method: 'POST', body: formData })
         .then(res => res.json())
@@ -850,6 +1414,64 @@ $watermarkClass = ($role === 'investor') ? 'watermarked-container' : '';
                 showSnackbar('Network error. Please try again.');
             });
     }
+
+    function toggleFollow() {
+        const btn = document.getElementById('follow-btn');
+        if (!btn || btn.disabled) return;
+        btn.disabled = true;
+
+        const fd = new FormData();
+        fd.append('idea_id', <?= $ideaId ?>);
+
+        fetch('api/follow-handler.php', { method: 'POST', body: fd })
+            .then(r => r.json())
+            .then(data => {
+                btn.disabled = false;
+                if (data.success) {
+                    const textSpan = document.getElementById('follow-btn-text');
+                    const badge = document.getElementById('follow-count-badge');
+                    let currentCount = parseInt(badge.innerText) || 0;
+
+                    if (data.following) {
+                        btn.className = "px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs shadow-md flex items-center gap-1.5 transition-all";
+                        textSpan.innerText = 'Unfollow Venture';
+                        badge.innerText = currentCount + 1;
+                        btn.querySelector('i').setAttribute('data-lucide', 'heart-off');
+                        showSnackbar('You are now following this venture!');
+                    } else {
+                        btn.className = "px-5 py-2.5 border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 font-bold rounded-xl text-xs shadow-sm bg-white flex items-center gap-1.5 transition-all";
+                        textSpan.innerText = 'Follow Venture';
+                        badge.innerText = Math.max(0, currentCount - 1);
+                        btn.querySelector('i').setAttribute('data-lucide', 'heart');
+                        showSnackbar('Removed from followed ventures.');
+                    }
+                    lucide.createIcons();
+                } else {
+                    showSnackbar(data.message || 'Operation failed.');
+                }
+            })
+            .catch(() => {
+                btn.disabled = false;
+            });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const starLabels = document.querySelectorAll('.star-rating-inputs label');
+        starLabels.forEach((label, index) => {
+            label.addEventListener('click', () => {
+                starLabels.forEach((l, idx) => {
+                    const icon = l.querySelector('.star-icon');
+                    if (idx <= index) {
+                        icon.classList.add('text-amber-500', 'fill-amber-500');
+                        icon.classList.remove('text-slate-300');
+                    } else {
+                        icon.classList.remove('text-amber-500', 'fill-amber-500');
+                        icon.classList.add('text-slate-300');
+                    }
+                });
+            });
+        });
+    });
 </script>
 
 <?php require_once __DIR__ . '/includes/footer.php'; ?>

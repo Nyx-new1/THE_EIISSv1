@@ -19,6 +19,55 @@ if ($role === 'admin') {
 
 $currentUser = dbGetUserByEmail($userEmail);
 
+// Handle simulated refund
+if ($role === 'entrepreneur' && isset($_GET['action']) && $_GET['action'] === 'refund' && isset($_GET['pledge_id'])) {
+    $pledgeId = (int)$_GET['pledge_id'];
+    $db = getDB();
+    
+    // Check if the pledge belongs to one of this entrepreneur's ideas
+    $checkStmt = $db->prepare("
+        SELECT cp.*, i.title as idea_title, i.entrepreneur_email 
+        FROM campaign_pledges cp
+        JOIN ideas i ON cp.idea_id = i.id
+        WHERE cp.id = ? LIMIT 1
+    ");
+    $checkStmt->execute([$pledgeId]);
+    $pledge = $checkStmt->fetch();
+    
+    if ($pledge && $pledge['entrepreneur_email'] === $userEmail && (int)$pledge['refunded'] === 0) {
+        try {
+            $db->beginTransaction();
+            
+            // 1. Mark pledge as refunded
+            $db->prepare("UPDATE campaign_pledges SET refunded = 1 WHERE id = ?")->execute([$pledgeId]);
+            
+            // 2. Reduce the startup's earnings
+            $db->prepare("UPDATE ideas SET earnings = earnings - ? WHERE id = ?")->execute([$pledge['amount'], $pledge['idea_id']]);
+            
+            // 3. Notify the investor
+            $notifStmt = $db->prepare("
+                INSERT INTO notifications (user_email, type, title, message, sender)
+                VALUES (?, 'info', 'Refund Processed', ?, 'System Admin')
+            ");
+            $notifMsg = "Entrepreneur of \"{$pledge['idea_title']}\" has refunded your contribution of " . formatCurrency($pledge['amount']) . ".";
+            $notifStmt->execute([$pledge['investor_email'], $notifMsg]);
+            
+            $db->commit();
+            
+            // Send real email to investor
+            require_once __DIR__ . '/includes/mailer.php';
+            sendRealEmail($pledge['investor_email'], "EIISS Platform - Refund Processed", $notifMsg, $userEmail);
+            
+            header("Location: dashboard.php?tab=2&refund_success=1");
+            exit;
+        } catch (Exception $ex) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+        }
+    }
+}
+
 require_once __DIR__ . '/includes/header.php';
 
 // Active Tab
@@ -161,13 +210,37 @@ if ($role === 'investor') {
         </div>
 
         <!-- Dashboard Navigation Tabs -->
-        <div class="bg-white rounded-xl border border-slate-200/80 p-1.5 flex gap-2 mb-8 max-w-xs shadow-sm">
-            <a href="?tab=0" class="flex-1 py-2 text-center text-xs font-bold rounded-lg transition-all <?= $activeTab === 0 ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800' ?>">My Ideas</a>
-            <a href="?tab=1" class="flex-1 py-2 text-center text-xs font-bold rounded-lg transition-all <?= $activeTab === 1 ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800' ?>">Earnings Overview</a>
+        <div class="bg-white rounded-xl border border-slate-200/80 p-1.5 flex gap-2 mb-8 max-w-md shadow-sm">
+            <a href="?tab=0" class="flex-1 py-2 text-center text-xs font-bold rounded-lg transition-all <?= $activeTab === 0 ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800' ?>"><?= ($_SESSION['lang'] ?? 'en') === 'en' ? 'My Ideas' : 'Mawazo Yangu' ?></a>
+            <a href="?tab=1" class="flex-1 py-2 text-center text-xs font-bold rounded-lg transition-all <?= $activeTab === 1 ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800' ?>"><?= ($_SESSION['lang'] ?? 'en') === 'en' ? 'Earnings Overview' : 'Maelezo ya Mapato' ?></a>
+            <a href="?tab=2" class="flex-1 py-2 text-center text-xs font-bold rounded-lg transition-all <?= $activeTab === 2 ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800' ?>"><?= ($_SESSION['lang'] ?? 'en') === 'en' ? 'Backers & Campaigns' : 'Waungaji Mkono & Kampeni' ?></a>
         </div>
 
         <!-- Tab 0: My Ideas list -->
         <?php if ($activeTab === 0): ?>
+
+            <!-- USD to TSH Exchange rate Widget -->
+            <div class="bg-gradient-to-br from-indigo-900 to-slate-900 text-white rounded-2xl border border-indigo-700/30 p-5 mb-8 relative overflow-hidden shadow-lg animate-fade-in flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                <div class="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-8 -mt-8 pointer-events-none"></div>
+                <div class="z-10 text-left">
+                    <h3 class="font-heading font-extrabold text-base flex items-center gap-1.5">
+                        <i data-lucide="coins" class="w-5 h-5 text-amber-400"></i> Dynamic USD/TSH Currency Exchange Calculator
+                    </h3>
+                    <p class="text-xs text-slate-300 font-semibold mt-1">Platform conversion factor set by admin: 1 USD = <span class="font-black text-amber-400 font-heading"><?= number_format((float)dbGetSystemSetting('usd_to_tsh') ?: 2600) ?> TZS</span></p>
+                </div>
+                
+                <div class="z-10 w-full md:w-auto flex flex-wrap items-center gap-3 bg-white/10 p-2.5 rounded-xl border border-white/10">
+                    <div class="flex items-center gap-2">
+                        <input type="number" id="calc-usd-input" placeholder="USD" class="w-24 px-2.5 py-1.5 rounded-lg bg-black/30 border border-white/20 text-white text-xs font-bold focus:outline-none focus:ring-1 focus:ring-amber-500 text-right" oninput="convertCurrencyWidget('usd')">
+                        <span class="text-[10px] font-bold text-slate-300">USD</span>
+                    </div>
+                    <i data-lucide="arrow-right-left" class="w-4 h-4 text-slate-400"></i>
+                    <div class="flex items-center gap-2">
+                        <input type="number" id="calc-tsh-input" placeholder="TSH" class="w-32 px-2.5 py-1.5 rounded-lg bg-black/30 border border-white/20 text-white text-xs font-bold focus:outline-none focus:ring-1 focus:ring-amber-500 text-right" oninput="convertCurrencyWidget('tsh')">
+                        <span class="text-[10px] font-bold text-slate-300">TZS</span>
+                    </div>
+                </div>
+            </div>
 
             <!-- Dynamic Stats Cards -->
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
@@ -220,9 +293,16 @@ if ($role === 'investor') {
                                         </span>
                                     </div>
                                 </div>
-                                <a href="idea-detail.php?id=<?= $idea['id'] ?>" class="px-4 py-2 border border-slate-200 hover:border-blue-200 text-slate-600 hover:text-blue-600 font-bold rounded-xl text-xs transition-all shadow-sm">
-                                    View Details
-                                </a>
+                                <div class="flex gap-2">
+                                    <a href="idea-detail.php?id=<?= $idea['id'] ?>" class="px-4 py-2 border border-slate-200 hover:border-blue-200 text-slate-600 hover:text-blue-600 font-bold rounded-xl text-xs transition-all shadow-sm">
+                                        View Details
+                                    </a>
+                                    <?php if ((float)$idea['funding_goal'] > 0): ?>
+                                        <a href="idea-detail.php?id=<?= $idea['id'] ?>&tab=3" class="px-4 py-2 bg-blue-50 border border-blue-100 hover:bg-blue-100 text-blue-600 font-bold rounded-xl text-xs transition-all shadow-sm flex items-center gap-1">
+                                            <i data-lucide="edit-3" class="w-3.5 h-3.5"></i> Manage Campaign
+                                        </a>
+                                    <?php endif; ?>
+                                </div>
                             </div>
 
                             <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 py-4 border-y border-slate-100 mb-4 bg-slate-50/30 px-4 rounded-xl">
@@ -240,11 +320,11 @@ if ($role === 'investor') {
                                 </div>
                                 <div>
                                     <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Access Price</p>
-                                    <p class="text-sm font-bold text-slate-700 mt-1"><?= $idea['access_type'] === 'free' ? 'Free' : '$' . $idea['access_price'] ?></p>
+                                    <p class="text-sm font-bold text-slate-700 mt-1"><?= $idea['access_type'] === 'free' ? 'Free' : formatCurrency($idea['access_price']) ?></p>
                                 </div>
                                 <div>
                                     <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Accumulated Earnings</p>
-                                    <p class="text-sm font-black text-emerald-600 mt-1">$<?= number_format($idea['earnings']) ?></p>
+                                    <p class="text-sm font-black text-emerald-600 mt-1"><?= formatCurrency($idea['earnings']) ?></p>
                                 </div>
                                 <div>
                                     <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Submitted</p>
@@ -258,34 +338,57 @@ if ($role === 'investor') {
                                 <span class="font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded leading-none text-[10px] select-all truncate max-w-[200px] sm:max-w-none"><?= e($idea['blockchain_hash']) ?></span>
                             </div>
 
-                            <!-- Progress bar -->
-                            <div class="mt-4">
-                                <div class="flex justify-between items-center text-xs font-semibold mb-1.5">
-                                    <span class="text-slate-500">Regional Venture Interest</span>
-                                    <span class="text-slate-700"><?= $idea['interests'] ?> / 50 investors</span>
+                            <!-- Crowdfunding or interest progress bar -->
+                            <?php
+                            $cGoal = (float)$idea['funding_goal'];
+                            if ($cGoal > 0):
+                                $cRaised = dbGetCampaignRaisedAmount($idea['id']);
+                                $cPledges = dbGetCampaignPledges($idea['id']);
+                                $cBackers = count($cPledges);
+                                $cPercent = min(100, round(($cRaised / $cGoal) * 100));
+                            ?>
+                                <div class="mt-4 pt-4 border-t border-slate-100/85">
+                                    <div class="flex justify-between items-center text-xs font-semibold mb-1.5">
+                                        <span class="text-slate-500">Campaign Funding: <span class="font-bold text-blue-600"><?= $cPercent ?>%</span> raised</span>
+                                        <span class="text-slate-700"><?= $cBackers ?> Backers</span>
+                                    </div>
+                                    <div class="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200/50">
+                                        <div class="h-full bg-gradient-to-r from-blue-500 to-emerald-500 rounded-full transition-all duration-300" style="width: <?= $cPercent ?>%"></div>
+                                    </div>
+                                    <div class="flex justify-between items-center mt-2 text-[10px] text-slate-400 font-bold uppercase">
+                                        <span>Goal: <?= formatCurrency($cGoal) ?></span>
+                                        <span>Raised: <?= formatCurrency($cRaised) ?></span>
+                                    </div>
                                 </div>
-                                <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                                    <div class="h-full bg-blue-600 rounded-full" style="width: <?= min(100, ((int)$idea['interests'] / 50) * 100) ?>%"></div>
+                            <?php else: ?>
+                                <div class="mt-4">
+                                    <div class="flex justify-between items-center text-xs font-semibold mb-1.5">
+                                        <span class="text-slate-500">Regional Venture Interest</span>
+                                        <span class="text-slate-700"><?= $idea['interests'] ?> / 50 investors</span>
+                                    </div>
+                                    <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                                        <div class="h-full bg-blue-600 rounded-full" style="width: <?= min(100, ((int)$idea['interests'] / 50) * 100) ?>%"></div>
+                                    </div>
                                 </div>
-                            </div>
+                            <?php endif; ?>
                         </div>
                     <?php endforeach; endif; ?>
                 </div>
             </div>
 
         <!-- Tab 1: Earnings Overview -->
-        <?php else: ?>
+        <?php elseif ($activeTab === 1): ?>
             <div class="space-y-6">
                 <!-- Top Mini Stats -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
                     <div onclick="openStatsModal('earnings')" class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md hover:border-emerald-200 transition-all cursor-pointer">
                         <div class="p-3 bg-emerald-50 text-emerald-600 rounded-xl w-fit mb-3"><i data-lucide="dollar-sign" class="w-6 h-6"></i></div>
-                        <p class="text-2xl font-heading font-black text-slate-800">$<?= number_format($totalEarnings) ?></p>
+                        <p class="text-2xl font-heading font-black text-slate-800"><?= formatCurrency($totalEarnings) ?></p>
                         <p class="text-xs font-semibold text-slate-400 mt-0.5">Total Lifetime Earnings</p>
                     </div>
                     <div onclick="openStatsModal('monthly')" class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md hover:border-blue-200 transition-all cursor-pointer">
                         <div class="p-3 bg-blue-50 text-blue-600 rounded-xl w-fit mb-3"><i data-lucide="trending-up" class="w-6 h-6"></i></div>
-                        <p class="text-2xl font-heading font-black text-slate-800">$<?= number_format($totalEarnings * 0.27) ?></p>
+                        <p class="text-2xl font-heading font-black text-slate-800"><?= formatCurrency($totalEarnings * 0.27) ?></p>
                         <p class="text-xs font-semibold text-slate-400 mt-0.5">Earnings This Month</p>
                     </div>
                     <div onclick="openStatsModal('views')" class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md hover:border-purple-200 transition-all cursor-pointer">
@@ -394,6 +497,89 @@ if ($role === 'investor') {
                     }
                 });
             </script>
+        <?php else: ?>
+            <div class="space-y-6">
+                <div class="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden p-6 text-left">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                        <div>
+                            <h2 class="font-heading font-extrabold text-lg text-slate-800"><?= ($_SESSION['lang'] ?? 'en') === 'en' ? 'Campaign Backers & Investment Registry' : 'Orodha ya Waungaji Mkono & Uwekezaji' ?></h2>
+                            <p class="text-xs text-slate-400 font-semibold mt-0.5"><?= ($_SESSION['lang'] ?? 'en') === 'en' ? 'Track pledges, manage exit shares, and process simulated refunds' : 'Fuatilia ahadi, dhibiti hisa za kutoka, na fanya simulizi ya kurejesha fedha' ?></p>
+                        </div>
+                        <a href="export-report.php" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition-all shadow-md shadow-emerald-500/10">
+                            <i data-lucide="download" class="w-4 h-4"></i> <?= ($_SESSION['lang'] ?? 'en') === 'en' ? 'Export Investor Report' : 'Pakua Ripoti ya Wawekezaji' ?>
+                        </a>
+                    </div>
+
+                    <?php if (isset($_GET['refund_success'])): ?>
+                        <div class="mb-6 p-4 bg-emerald-50 border border-emerald-100 rounded-xl flex gap-3 text-emerald-800 text-xs font-semibold">
+                            <i data-lucide="check-circle" class="w-5 h-5 text-emerald-600 flex-shrink-0"></i>
+                            <p>Refund simulated successfully! The investor has been notified via email and system notification.</p>
+                        </div>
+                    <?php endif; ?>
+
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-slate-100 text-xs text-slate-600 font-semibold">
+                            <thead>
+                                <tr class="bg-slate-50 text-[10px] text-slate-400 uppercase tracking-wider font-bold">
+                                    <th class="px-6 py-3.5 text-left">Investor Name</th>
+                                    <th class="px-6 py-3.5 text-left">Campaign Proposal</th>
+                                    <th class="px-6 py-3.5 text-left">Tier Detail</th>
+                                    <th class="px-6 py-3.5 text-right">Pledge Amount</th>
+                                    <th class="px-6 py-3.5 text-right">Equity Share</th>
+                                    <th class="px-6 py-3.5 text-left">Method</th>
+                                    <th class="px-6 py-3.5 text-left">Date</th>
+                                    <th class="px-6 py-3.5 text-center">Status</th>
+                                    <th class="px-6 py-3.5 text-center">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                <?php
+                                $backersList = dbGetBackersForEntrepreneur($userEmail);
+                                if (empty($backersList)):
+                                ?>
+                                    <tr>
+                                        <td colspan="9" class="px-6 py-12 text-center text-slate-400 font-medium">
+                                            <i data-lucide="users" class="w-8 h-8 mx-auto mb-2 text-slate-300"></i>
+                                            <?= ($_SESSION['lang'] ?? 'en') === 'en' ? 'No backers have supported your campaigns yet.' : 'Hakuna waungaji mkono waliounga mkono kampeni zako bado.' ?>
+                                        </td>
+                                    </tr>
+                                <?php else: foreach ($backersList as $b): ?>
+                                    <tr class="hover:bg-slate-50/50 transition-colors">
+                                        <td class="px-6 py-4">
+                                            <div class="font-bold text-slate-800"><?= e($b['investor_name']) ?></div>
+                                            <div class="text-[10px] text-slate-400 font-mono"><?= e($b['investor_email']) ?></div>
+                                        </td>
+                                        <td class="px-6 py-4 max-w-[150px] truncate"><?= e($b['idea_title']) ?></td>
+                                        <td class="px-6 py-4">
+                                            <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200"><?= e($b['tier_title'] ?: 'Custom Contribution') ?></span>
+                                        </td>
+                                        <td class="px-6 py-4 text-right font-bold text-slate-800"><?= formatCurrency($b['amount']) ?></td>
+                                        <td class="px-6 py-4 text-right text-emerald-600 font-bold"><?= $b['equity_pct'] > 0 ? $b['equity_pct'] . '%' : '-' ?></td>
+                                        <td class="px-6 py-4 uppercase font-bold text-slate-500"><?= e($b['payment_method']) ?></td>
+                                        <td class="px-6 py-4 text-slate-400 font-semibold"><?= date('M j, Y', strtotime($b['created_at'])) ?></td>
+                                        <td class="px-6 py-4 text-center">
+                                            <?php if ((int)$b['refunded'] === 1): ?>
+                                                <span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-red-100 text-red-700">Refunded</span>
+                                            <?php else: ?>
+                                                <span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-100 text-emerald-700">Active</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td class="px-6 py-4 text-center">
+                                            <?php if ((int)$b['refunded'] === 0): ?>
+                                                <a href="?tab=2&action=refund&pledge_id=<?= $b['id'] ?>" onclick="return confirm('Simulate refunding this investment? This will reverse their transaction and update platform totals.')" class="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-[10px] font-black transition-all border border-red-100">
+                                                    Refund
+                                                </a>
+                                            <?php else: ?>
+                                                <span class="text-slate-300 font-bold text-[10px]">-</span>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
         <?php endif; ?>
 
     <!-- ================= 2. INVESTOR WORKSPACE ================= -->
@@ -432,6 +618,29 @@ if ($role === 'investor') {
                 <div class="p-3 bg-yellow-50 text-yellow-600 rounded-xl w-fit mb-3"><i data-lucide="star" class="w-6 h-6"></i></div>
                 <p class="text-2xl font-heading font-black text-slate-800"><?= $watching ?></p>
                 <p class="text-xs font-semibold text-slate-400 mt-0.5">Ideas on Watchlist</p>
+            </div>
+        </div>
+
+        <!-- USD to TSH Exchange rate Widget -->
+        <div class="bg-gradient-to-br from-indigo-900 to-slate-900 text-white rounded-2xl border border-indigo-700/30 p-5 mb-8 relative overflow-hidden shadow-lg animate-fade-in flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+            <div class="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-8 -mt-8 pointer-events-none"></div>
+            <div class="z-10 text-left">
+                <h3 class="font-heading font-extrabold text-base flex items-center gap-1.5">
+                    <i data-lucide="coins" class="w-5 h-5 text-amber-400"></i> Dynamic USD/TSH Currency Exchange Calculator
+                </h3>
+                <p class="text-xs text-slate-300 font-semibold mt-1">Platform conversion factor set by admin: 1 USD = <span class="font-black text-amber-400 font-heading"><?= number_format((float)dbGetSystemSetting('usd_to_tsh') ?: 2600) ?> TZS</span></p>
+            </div>
+            
+            <div class="z-10 w-full md:w-auto flex flex-wrap items-center gap-3 bg-white/10 p-2.5 rounded-xl border border-white/10">
+                <div class="flex items-center gap-2">
+                    <input type="number" id="calc-usd-input-inv" placeholder="USD" class="w-24 px-2.5 py-1.5 rounded-lg bg-black/30 border border-white/20 text-white text-xs font-bold focus:outline-none focus:ring-1 focus:ring-amber-500 text-right" oninput="convertCurrencyWidgetInv('usd')">
+                    <span class="text-[10px] font-bold text-slate-300">USD</span>
+                </div>
+                <i data-lucide="arrow-right-left" class="w-4 h-4 text-slate-400"></i>
+                <div class="flex items-center gap-2">
+                    <input type="number" id="calc-tsh-input-inv" placeholder="TSH" class="w-32 px-2.5 py-1.5 rounded-lg bg-black/30 border border-white/20 text-white text-xs font-bold focus:outline-none focus:ring-1 focus:ring-amber-500 text-right" oninput="convertCurrencyWidgetInv('tsh')">
+                    <span class="text-[10px] font-bold text-slate-300">TZS</span>
+                </div>
             </div>
         </div>
 
@@ -518,6 +727,38 @@ if ($role === 'investor') {
                         <option value="roi">Expected ROI (High → Low)</option>
                         <option value="capital">Capital Required (Low → High)</option>
                         <option value="score">Evaluation Score (High → Low)</option>
+                        <option value="funded">Most Funded (Progress %)</option>
+                        <option value="views">Trending (Views)</option>
+                        <option value="deadline">Funding Deadline</option>
+                    </select>
+                </div>
+
+                <!-- Region Filter -->
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Region / Location (Tanzania)</label>
+                    <select id="filter-region" class="block w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-slate-50/50 cursor-pointer">
+                        <option value="all">All Regions</option>
+                        <option value="dar es salaam, tanzania">Dar es Salaam</option>
+                        <option value="dodoma, tanzania">Dodoma</option>
+                        <option value="arusha, tanzania">Arusha</option>
+                        <option value="mwanza, tanzania">Mwanza</option>
+                        <option value="kilimanjaro, tanzania">Kilimanjaro</option>
+                        <option value="mbeya, tanzania">Mbeya</option>
+                        <option value="morogoro, tanzania">Morogoro</option>
+                        <option value="tanga, tanzania">Tanga</option>
+                        <option value="zanzibar, tanzania">Zanzibar</option>
+                    </select>
+                </div>
+
+                <!-- Campaign Status Filter -->
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Campaign Status</label>
+                    <select id="filter-campaign-status" class="block w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-slate-50/50 cursor-pointer">
+                        <option value="all">All Statuses</option>
+                        <option value="active">Active</option>
+                        <option value="successful">Successful</option>
+                        <option value="failed">Failed</option>
+                        <option value="closed">Closed</option>
                     </select>
                 </div>
             </div>
@@ -561,6 +802,9 @@ if ($role === 'investor') {
                     </div>
                 </div>
 
+                    </div>
+                </div>
+
                 <!-- Access Type -->
                 <div>
                     <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Access Type</label>
@@ -575,6 +819,34 @@ if ($role === 'investor') {
                             <input type="radio" name="filter-access" class="w-3 h-3 accent-blue-600" value="paid"> Paid
                         </label>
                     </div>
+                </div>
+
+                <!-- Campaign Type -->
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Campaign Type</label>
+                    <div class="flex gap-2 flex-wrap">
+                        <label class="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 cursor-pointer hover:border-blue-200 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:checked]:text-blue-700 transition-all">
+                            <input type="radio" name="filter-campaign" class="w-3 h-3 accent-blue-600" value="all" checked> All
+                        </label>
+                        <label class="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 cursor-pointer hover:border-blue-200 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:checked]:text-blue-700 transition-all">
+                            <input type="radio" name="filter-campaign" class="w-3 h-3 accent-blue-600" value="equity"> Equity
+                        </label>
+                        <label class="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 cursor-pointer hover:border-blue-200 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:checked]:text-blue-700 transition-all">
+                            <input type="radio" name="filter-campaign" class="w-3 h-3 accent-blue-600" value="rewards"> Rewards
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Campaign Funding Progress -->
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Funding Progress</label>
+                    <select id="filter-progress" class="block w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-slate-50/50 cursor-pointer">
+                        <option value="all">All Campaign Progress</option>
+                        <option value="under25">Under 25% Funded</option>
+                        <option value="25to75">25% - 75% Funded</option>
+                        <option value="over75">Over 75% Funded</option>
+                        <option value="funded">100%+ Completed</option>
+                    </select>
                 </div>
             </div>
 
@@ -612,7 +884,7 @@ if ($role === 'investor') {
                 <?php else:
                 foreach ($allIdeas as $idea):
                     // Dynamic AI Matching Score
-                    $matchScore = 70;
+                    $matchScore = 60;
                     if (!empty($prefSectors) && in_array(strtolower($idea['sector']), $prefSectors)) {
                         $matchScore += 15;
                     }
@@ -622,25 +894,94 @@ if ($role === 'investor') {
                     if ((float)$idea['capital_required'] <= $prefMaxInvestment) {
                         $matchScore += 5;
                     }
+                    if (!empty($prefLocation) && strtolower($idea['covered_area']) === strtolower($prefLocation)) {
+                        $matchScore += 10;
+                    }
 
                     $unlocked = dbIsIdeaUnlocked($userEmail, (int)$idea['id'], 'access');
+
+                    $goal = (float)($idea['funding_goal'] ?: $idea['capital_required']);
+                    $raised = dbGetCampaignRaisedAmount($idea['id']);
+                    $pctRaised = $goal > 0 ? min(100, round(($raised / $goal) * 100)) : 0;
+
+                    $backerCount = count(dbGetCampaignPledges($idea['id']));
+                    $interestCount = (int)$idea['interests'];
+                    $entrepreneurUser = dbGetUserByEmail($idea['entrepreneur_email']);
+                    $isVerifiedFounder = $entrepreneurUser && $entrepreneurUser['verified'];
                 ?>
-                    <div class="p-6 hover:bg-slate-50/40 transition-colors idea-card-item"
+                    <div class="p-6 hover:bg-slate-50/40 transition-colors idea-card-item animate-fade-in"
                          data-title="<?= strtolower(e($idea['title'])) ?>"
                          data-sector="<?= strtolower(e($idea['sector'])) ?>"
                          data-score="<?= $idea['score'] ?>"
                          data-roi="<?= $idea['expected_roi'] ?>"
                          data-capital="<?= $idea['capital_required'] ?>"
                          data-risk="<?= e($idea['risk_level']) ?>"
-                         data-stage="<?= e($idea['stage']) ?>"
+                        data-stage="<?= e($idea['stage']) ?>"
                          data-access="<?= e($idea['access_type']) ?>"
+                         data-campaign="<?= e($idea['campaign_type'] ?: 'rewards') ?>"
+                         data-progress-pct="<?= $pctRaised ?>"
+                         data-region="<?= strtolower(e($idea['covered_area'])) ?>"
+                         data-campaign-status="<?= e($idea['campaign_status'] ?: 'Active') ?>"
+                         data-views="<?= (int)$idea['views'] ?>"
+                         data-deadline="<?= e($idea['funding_deadline'] ?: '2099-12-31') ?>"
                          data-match="<?= $matchScore ?>">
+
+                        <?php
+                        $sectorImages = [
+                            'technology' => 'assets/feature_slide-1.jpg',
+                            'healthcare' => 'assets/feature_slide-2.jpg',
+                            'agriculture' => 'assets/feature_slide-3.jpg',
+                            'education' => 'assets/feature_slide-4.jpg',
+                            'ecommerce' => 'assets/feature_slide-5.jpg',
+                            'fintech' => 'assets/feature_slide-6.jpg',
+                            'manufacturing' => 'assets/core1.jpg'
+                        ];
+                        $cardImage = $sectorImages[strtolower($idea['sector'])] ?? 'assets/core2.jpg';
+                        ?>
+                        <!-- Card Header Image Decorator -->
+                        <div class="w-full h-40 rounded-2xl overflow-hidden mb-4 relative shadow-sm border border-slate-100">
+                            <img src="<?= $cardImage ?>" alt="Venture Cover Image" class="w-full h-full object-cover transform hover:scale-105 transition-transform duration-500">
+                            <div class="absolute inset-0 bg-gradient-to-t from-slate-900/60 to-transparent"></div>
+                            
+                            <!-- Floating badging -->
+                            <div class="absolute top-3 left-3 flex gap-1.5 flex-wrap z-10">
+                                <span class="px-2 py-0.5 text-[9px] font-black text-white bg-blue-600 rounded-md uppercase tracking-wider">
+                                    <?= $idea['campaign_type'] === 'equity' ? 'Equity' : 'Rewards' ?>
+                                </span>
+                                <?php if ($isVerifiedFounder): ?>
+                                    <span class="px-2 py-0.5 text-[9px] font-black text-white bg-indigo-600 rounded-md uppercase tracking-wider flex items-center gap-0.5">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Verified
+                                    </span>
+                                <?php endif; ?>
+                            </div>
+
+                            <div class="absolute bottom-3 left-3 right-3 flex justify-between items-center text-white z-10">
+                                <span class="text-xs font-bold bg-black/40 backdrop-blur-md px-2 py-0.5 rounded border border-white/10 flex items-center gap-1">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-amber-500 fill-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                                    <?= number_format(dbGetIdeaAvgRating($idea['id']), 1) ?>
+                                </span>
+                                <span class="text-[10px] font-black tracking-wider uppercase bg-black/40 backdrop-blur-md px-2 py-0.5 rounded border border-white/10">
+                                    <?= e($idea['covered_area'] ?: 'Dar es Salaam') ?>
+                                </span>
+                            </div>
+                        </div>
 
                         <div class="flex flex-col sm:flex-row justify-between items-start gap-4 mb-4">
                             <div class="flex-1 min-w-0">
                                 <div class="flex items-center gap-3 flex-wrap">
                                     <h3 class="font-heading font-extrabold text-lg text-slate-800 truncate"><?= e($idea['title']) ?></h3>
                                     <span class="px-2.5 py-0.5 text-[10px] font-black text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-full tracking-wider"><?= $matchScore ?>% MATCH</span>
+                                    
+                                    <!-- Social Proof Badges -->
+                                    <?php if ($backerCount >= 3 || $interestCount >= 5): ?>
+                                        <span class="px-2 py-0.5 text-[9px] font-black bg-amber-500 text-white rounded-md tracking-wider uppercase badge-glow-trending">🔥 Trending</span>
+                                    <?php endif; ?>
+                                    <?php if ($interestCount >= 2): ?>
+                                        <span class="px-2 py-0.5 text-[9px] font-black bg-purple-600 text-white rounded-md tracking-wider uppercase badge-glow-featured">⭐ VC Featured</span>
+                                    <?php endif; ?>
+                                    <?php if ($isVerifiedFounder): ?>
+                                        <span class="px-2 py-0.5 text-[9px] font-black bg-blue-500 text-white rounded-md tracking-wider uppercase badge-glow-verified">✓ Verified</span>
+                                    <?php endif; ?>
                                 </div>
                                 <div class="flex gap-2 mt-2 flex-wrap">
                                     <span class="px-2.5 py-0.5 text-[11px] font-bold text-blue-600 bg-blue-50 border border-blue-100 rounded-full uppercase tracking-wider"><?= e($idea['sector']) ?></span>
@@ -657,7 +998,7 @@ if ($role === 'investor') {
                                         </span>
                                     <?php else: ?>
                                         <span class="px-2.5 py-0.5 text-[11px] font-bold text-slate-500 bg-slate-100 border border-slate-200 rounded-full uppercase tracking-wider flex items-center gap-1">
-                                            <i data-lucide="lock" class="w-3 h-3"></i> $<?= $idea['access_price'] ?> Full decryption
+                                            <i data-lucide="lock" class="w-3 h-3"></i> <?= formatCurrency($idea['access_price']) ?> Decryption
                                         </span>
                                     <?php endif; ?>
                                 </div>
@@ -674,7 +1015,7 @@ if ($role === 'investor') {
                             </div>
                             <div>
                                 <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Capital Target</p>
-                                <p class="text-sm font-extrabold text-slate-700 mt-1">$<?= number_format($idea['capital_required']) ?></p>
+                                <p class="text-sm font-extrabold text-slate-700 mt-1"><?= formatCurrency($idea['capital_required']) ?></p>
                             </div>
                             <div>
                                 <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Expected ROI</p>
@@ -689,6 +1030,23 @@ if ($role === 'investor') {
                                 <p class="text-sm font-bold text-slate-700 mt-1"><?= $idea['interests'] ?></p>
                             </div>
                         </div>
+
+                        <!-- Crowdfunding progress bar if goal is set -->
+                        <?php if ((float)$idea['funding_goal'] > 0): ?>
+                            <div class="mt-4 pt-3 border-t border-slate-100/80">
+                                <div class="flex justify-between items-center text-xs font-semibold mb-1">
+                                    <span class="text-slate-500">Crowdfunding: <span class="font-bold text-blue-600"><?= $pctRaised ?>%</span> raised</span>
+                                    <span class="text-slate-700 font-bold"><?= $backerCount ?> Backer<?= $backerCount !== 1 ? 's' : '' ?></span>
+                                </div>
+                                <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden border border-slate-200/30">
+                                    <div class="h-full campaign-progress-fill rounded-full" style="width: <?= $pctRaised ?>%"></div>
+                                </div>
+                                <div class="flex justify-between items-center mt-1.5 text-[10px] text-slate-400 font-bold uppercase">
+                                    <span>Goal: <?= formatCurrency($goal) ?></span>
+                                    <span>Raised: <?= formatCurrency($raised) ?></span>
+                                </div>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 <?php endforeach; endif; ?>
             </div>
@@ -732,9 +1090,10 @@ if ($role === 'investor') {
                 sectorFilter.addEventListener('change', filterItems);
 
                 // Listen for changes in the audit filter drawer
-                document.querySelectorAll('.filter-risk, .filter-stage, input[name="filter-access"]').forEach(el => {
+                document.querySelectorAll('.filter-risk, .filter-stage, input[name="filter-access"], input[name="filter-campaign"]').forEach(el => {
                     el.addEventListener('change', () => updateFilterBadge());
                 });
+                document.getElementById('filter-progress').addEventListener('change', () => updateFilterBadge());
                 document.querySelectorAll('#filter-min-score, #filter-max-capital, #filter-min-roi').forEach(el => {
                     el.addEventListener('input', () => updateFilterBadge());
                 });
@@ -750,7 +1109,9 @@ if ($role === 'investor') {
                 const label = document.getElementById(labelId);
                 let val = parseFloat(el.value);
                 if (format) {
-                    label.innerText = (prefix || '') + val.toLocaleString() + suffix;
+                    // format as TSH and USD
+                    const tshVal = val * 2600;
+                    label.innerText = "Tsh. " + tshVal.toLocaleString() + "/= ($ " + val.toLocaleString() + ")";
                 } else {
                     label.innerText = (prefix || '') + val + suffix;
                 }
@@ -765,6 +1126,14 @@ if ($role === 'investor') {
                 if (document.querySelectorAll('.filter-stage:checked').length > 0) count++;
                 const accessVal = document.querySelector('input[name="filter-access"]:checked')?.value;
                 if (accessVal && accessVal !== 'all') count++;
+                const campaignVal = document.querySelector('input[name="filter-campaign"]:checked')?.value;
+                if (campaignVal && campaignVal !== 'all') count++;
+                const progressVal = document.getElementById('filter-progress').value;
+                if (progressVal && progressVal !== 'all') count++;
+                const regionVal = document.getElementById('filter-region').value;
+                if (regionVal && regionVal !== 'all') count++;
+                const statusVal = document.getElementById('filter-campaign-status').value;
+                if (statusVal && statusVal !== 'all') count++;
                 if (document.getElementById('filter-sort').value !== 'match') count++;
                 return count;
             }
@@ -772,11 +1141,13 @@ if ($role === 'investor') {
             function updateFilterBadge() {
                 const count = countActiveFilters();
                 const badge = document.getElementById('active-filter-badge');
-                if (count > 0) {
-                    badge.classList.remove('hidden');
-                    badge.innerText = count;
-                } else {
-                    badge.classList.add('hidden');
+                if (badge) {
+                    if (count > 0) {
+                        badge.classList.remove('hidden');
+                        badge.innerText = count;
+                    } else {
+                        badge.classList.add('hidden');
+                    }
                 }
             }
 
@@ -788,6 +1159,10 @@ if ($role === 'investor') {
                 document.querySelectorAll('.filter-risk').forEach(c => c.checked = false);
                 document.querySelectorAll('.filter-stage').forEach(c => c.checked = false);
                 document.querySelector('input[name="filter-access"][value="all"]').checked = true;
+                document.querySelector('input[name="filter-campaign"][value="all"]').checked = true;
+                document.getElementById('filter-progress').value = 'all';
+                document.getElementById('filter-region').value = 'all';
+                document.getElementById('filter-campaign-status').value = 'all';
 
                 // Reset labels
                 document.getElementById('label-min-score').innerText = '0/10';
@@ -808,6 +1183,10 @@ if ($role === 'investor') {
                 const checkedRisks  = [...document.querySelectorAll('.filter-risk:checked')].map(c => c.value);
                 const checkedStages = [...document.querySelectorAll('.filter-stage:checked')].map(c => c.value);
                 const accessFilter  = document.querySelector('input[name="filter-access"]:checked')?.value || 'all';
+                const campaignFilter = document.querySelector('input[name="filter-campaign"]:checked')?.value || 'all';
+                const progressFilter = document.getElementById('filter-progress').value || 'all';
+                const regionFilter   = document.getElementById('filter-region').value || 'all';
+                const statusFilter   = document.getElementById('filter-campaign-status').value || 'all';
 
                 // Also respect search and sector
                 const query  = document.getElementById('idea-search').value.trim().toLowerCase();
@@ -824,6 +1203,10 @@ if ($role === 'investor') {
                     const risk       = card.getAttribute('data-risk');
                     const stage      = card.getAttribute('data-stage');
                     const access     = card.getAttribute('data-access');
+                    const campaign   = card.getAttribute('data-campaign') || '';
+                    const progressPct = parseFloat(card.getAttribute('data-progress-pct') || '0');
+                    const region      = card.getAttribute('data-region') || '';
+                    const campaignStatus = card.getAttribute('data-campaign-status')?.toLowerCase() || 'active';
 
                     let show = true;
 
@@ -835,6 +1218,26 @@ if ($role === 'investor') {
                     if (checkedRisks.length > 0 && !checkedRisks.includes(risk)) show = false;
                     if (checkedStages.length > 0 && !checkedStages.includes(stage)) show = false;
                     if (accessFilter !== 'all' && access !== accessFilter) show = false;
+                    
+                    // Campaign type filter
+                    if (campaignFilter !== 'all') {
+                        if (campaignFilter === 'equity' && campaign !== 'equity') show = false;
+                        if (campaignFilter === 'rewards' && campaign !== 'rewards') show = false;
+                    }
+
+                    // Progress pct filter
+                    if (progressFilter !== 'all') {
+                        if (progressFilter === 'under25' && (progressPct >= 25 || campaign === '')) show = false;
+                        if (progressFilter === '25to75' && (progressPct < 25 || progressPct > 75 || campaign === '')) show = false;
+                        if (progressFilter === 'over75' && (progressPct <= 75 || campaign === '')) show = false;
+                        if (progressFilter === 'funded' && (progressPct < 100 || campaign === '')) show = false;
+                    }
+
+                    // Region filter
+                    if (regionFilter !== 'all' && region !== regionFilter) show = false;
+
+                    // Campaign Status filter
+                    if (statusFilter !== 'all' && campaignStatus !== statusFilter) show = false;
 
                     if (show) {
                         card.classList.remove('hidden');
@@ -851,6 +1254,11 @@ if ($role === 'investor') {
                     if (sortBy === 'roi')   return parseFloat(b.dataset.roi) - parseFloat(a.dataset.roi);
                     if (sortBy === 'capital') return parseFloat(a.dataset.capital) - parseFloat(b.dataset.capital);
                     if (sortBy === 'score') return parseFloat(b.dataset.score) - parseFloat(a.dataset.score);
+                    if (sortBy === 'funded') return parseFloat(b.dataset.progressPct) - parseFloat(a.dataset.progressPct);
+                    if (sortBy === 'views') return parseFloat(b.dataset.views) - parseFloat(a.dataset.views);
+                    if (sortBy === 'deadline') {
+                        return new Date(a.dataset.deadline) - new Date(b.dataset.deadline);
+                    }
                     return 0;
                 });
                 visibleCards.forEach(c => container.appendChild(c));
@@ -1042,6 +1450,11 @@ if ($role === 'investor') {
         return String(text).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
     }
 
+    function formatJSVal(usd) {
+        const tsh = usd * 2600;
+        return "Tsh. " + Number(tsh).toLocaleString() + "/= ($ " + Number(usd).toLocaleString() + ")";
+    }
+
     function openStatsModal(type) {
         const modal = document.getElementById('stats-modal');
         const titleEl = modal ? modal.querySelector('.modal-title') : null;
@@ -1062,7 +1475,7 @@ if ($role === 'investor') {
                             <p class="text-sm font-bold text-slate-800">${_esc(i.title)}</p>
                             <p class="text-[10px] text-slate-400 font-semibold uppercase mt-0.5">${_esc(i.sector)} &bull; ${_esc(i.status)}</p>
                         </div>
-                        <span class="px-2 py-0.5 rounded bg-blue-50 text-blue-600 font-extrabold text-xs ml-2 flex-shrink-0">$${i.earnings.toLocaleString()}</span>
+                        <span class="px-2 py-0.5 rounded bg-blue-50 text-blue-600 font-extrabold text-xs ml-2 flex-shrink-0">${formatJSVal(i.earnings)}</span>
                     </div>`;
                 });
             }
@@ -1123,7 +1536,7 @@ if ($role === 'investor') {
                 _ideasData.forEach(i => {
                     listHTML += `<div class="py-3 flex justify-between items-center border-b border-slate-50 last:border-0">
                         <p class="text-sm font-bold text-slate-800">${_esc(i.title)}</p>
-                        <span class="px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-600 font-black text-xs flex-shrink-0 ml-2">$${i.earnings.toLocaleString()}</span>
+                        <span class="px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-600 font-black text-xs flex-shrink-0 ml-2">${formatJSVal(i.earnings)}</span>
                     </div>`;
                 });
             }
@@ -1137,7 +1550,7 @@ if ($role === 'investor') {
                     const monthly = Math.round(i.earnings * 0.27);
                     listHTML += `<div class="py-3 flex justify-between items-center border-b border-slate-50 last:border-0">
                         <p class="text-sm font-bold text-slate-800">${_esc(i.title)}</p>
-                        <span class="px-2.5 py-1 rounded-xl bg-blue-50 text-blue-600 font-black text-xs flex-shrink-0 ml-2">$${monthly.toLocaleString()}</span>
+                        <span class="px-2.5 py-1 rounded-xl bg-blue-50 text-blue-600 font-black text-xs flex-shrink-0 ml-2">${formatJSVal(monthly)}</span>
                     </div>`;
                 });
             }
@@ -1153,7 +1566,7 @@ if ($role === 'investor') {
                             <p class="text-sm font-bold text-slate-800">${_esc(tx.investor_name)}</p>
                             <p class="text-[10px] text-slate-400 font-semibold uppercase mt-0.5">${_esc(tx.idea_title)} &bull; ${_esc(tx.payment_method)}</p>
                         </div>
-                        <span class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-600 font-black text-xs flex-shrink-0 ml-2">+$${tx.amount.toLocaleString()}</span>
+                        <span class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-600 font-black text-xs flex-shrink-0 ml-2">+${formatJSVal(tx.amount)}</span>
                     </div>`;
                 });
             }
@@ -1173,6 +1586,54 @@ if ($role === 'investor') {
         if (modal) {
             modal.classList.add('hidden');
             modal.classList.remove('flex');
+        }
+    }
+
+    function convertCurrencyWidget(source) {
+        const rate = <?= (float)dbGetSystemSetting('usd_to_tsh') ?: 2600 ?>;
+        const usdInput = document.getElementById('calc-usd-input');
+        const tshInput = document.getElementById('calc-tsh-input');
+        
+        if (!usdInput || !tshInput) return;
+        
+        if (source === 'usd') {
+            const val = parseFloat(usdInput.value);
+            if (!isNaN(val)) {
+                tshInput.value = Math.round(val * rate);
+            } else {
+                tshInput.value = '';
+            }
+        } else {
+            const val = parseFloat(tshInput.value);
+            if (!isNaN(val)) {
+                usdInput.value = (val / rate).toFixed(2);
+            } else {
+                usdInput.value = '';
+            }
+        }
+    }
+
+    function convertCurrencyWidgetInv(source) {
+        const rate = <?= (float)dbGetSystemSetting('usd_to_tsh') ?: 2600 ?>;
+        const usdInput = document.getElementById('calc-usd-input-inv');
+        const tshInput = document.getElementById('calc-tsh-input-inv');
+        
+        if (!usdInput || !tshInput) return;
+        
+        if (source === 'usd') {
+            const val = parseFloat(usdInput.value);
+            if (!isNaN(val)) {
+                tshInput.value = Math.round(val * rate);
+            } else {
+                tshInput.value = '';
+            }
+        } else {
+            const val = parseFloat(tshInput.value);
+            if (!isNaN(val)) {
+                usdInput.value = (val / rate).toFixed(2);
+            } else {
+                usdInput.value = '';
+            }
         }
     }
 </script>
